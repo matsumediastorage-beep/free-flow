@@ -42,7 +42,7 @@ ln -s /Applications "$STAGING/Applications"
 # are not optional and nobody reads a repo before dragging an icon.
 cat > "$STAGING/READ ME FIRST.txt" <<'EOF'
 Free Flow
-==========
+=========
 
 1. Drag Flow.app onto the Applications folder.
    Keep it there — macOS ties permissions to the app's location.

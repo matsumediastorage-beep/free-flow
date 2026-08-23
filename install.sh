@@ -88,14 +88,14 @@ if ! cp -R "$SOURCE" "$APP" 2>/dev/null; then
   sudo chown -R "$(id -u):$(id -g)" "$APP"
 fi
 
-say "Launching"
+say "Launching Free Flow"
 open "$APP"
 
 cat <<'EOF'
 
   Installed.
 
-  Flow will now ask for three permissions. macOS requires a human to grant
+  Free Flow will now ask for three permissions. macOS requires a human to grant
   each one — no app can do it for itself. The setup window links straight to
   the right page for each:
 
@@ -103,7 +103,7 @@ cat <<'EOF'
       Input Monitoring  notices when you hold the dictation key
       Microphone        hears you
 
-  If you also have Wispr Flow installed, watch which "Flow" you tick.
+  If another dictation app is installed, check you tick the right one.
 
   Then it downloads about 600MB of speech model, once. The menu bar shows
   progress. After that it works entirely offline.

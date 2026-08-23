@@ -15,9 +15,9 @@ ROOT="$(pwd)"
 VERSION="${1:-}"
 [[ -n "$VERSION" ]] || { echo "usage: ./scripts/release.sh <version>" >&2; exit 2; }
 
-REPO="${MATSU_FLOW_REPO:-matsumediastorage-beep/matsu-flow}"
+REPO="${FREE_FLOW_REPO:-matsumediastorage-beep/free-flow}"
 BUNDLE="$ROOT/build/Flow.app"
-ZIP="$ROOT/build/MatsuFlow-$VERSION.zip"
+ZIP="$ROOT/build/FreeFlow-$VERSION.zip"
 
 echo "==> Stamping version $VERSION"
 # sed, not PlistBuddy. PlistBuddy rewrites the entire file — it strips the
@@ -50,8 +50,8 @@ git push origin --force "refs/tags/v$VERSION"
 echo "==> Publishing"
 gh release create "v$VERSION" "$ZIP" \
   -R "$REPO" \
-  --title "Matsu Flow $VERSION" \
-  --notes "Install: \`gh repo clone $REPO -- --depth 1 && cd matsu-flow && ./install.sh\`" \
+  --title "Free Flow $VERSION" \
+  --notes "Install: \`gh repo clone $REPO -- --depth 1 && cd free-flow && ./install.sh\`" \
   || gh release upload "v$VERSION" "$ZIP" -R "$REPO" --clobber
 
 echo "==> Done: $ZIP"

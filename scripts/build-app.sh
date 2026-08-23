@@ -24,6 +24,9 @@ done
 
 APP_NAME="Flow"
 BUNDLE="$ROOT/build/$APP_NAME.app"
+# Still "Matsu Flow Dev" after the rename to Free Flow, on purpose: macOS ties
+# permission grants to the code signature, so minting a differently-named
+# certificate would make every existing install forget its permissions.
 IDENTITY_NAME="Matsu Flow Dev"
 
 echo "==> Building ($CONFIG)"

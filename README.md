@@ -1,4 +1,4 @@
-# Matsu Flow
+# Free Flow
 
 Hold **Left Shift**, talk, release. Clean text appears wherever your cursor is —
 Slack, Mail, a code editor, anywhere.
@@ -135,11 +135,11 @@ out spelled right.
 
 ## Installing it on someone else's Mac
 
-Send them **https://matsumediastorage-beep.github.io/matsu-flow/** — a page with
+Send them **https://matsumediastorage-beep.github.io/free-flow/** — a page with
 a copy button and one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/matsumediastorage-beep/matsu-flow/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/matsumediastorage-beep/free-flow/main/install.sh | bash
 ```
 
 The installer checks the machine, pulls the latest release, puts `Flow.app` in
@@ -148,7 +148,7 @@ that part is unavoidable and has to be done by hand.
 
 ### Why it isn't a double-click
 
-Matsu Flow is signed with a **self-signed certificate**, not an Apple Developer
+Free Flow is signed with a **self-signed certificate**, not an Apple Developer
 ID, and it is **not notarized**. macOS flags anything a browser downloads with
 `com.apple.quarantine`, and Gatekeeper refuses to open a quarantined app Apple
 hasn't notarized — so shipping the `.dmg` by email or Slack gets everyone
@@ -166,7 +166,7 @@ Reasonable for an internal tool, not for public distribution.
 signing, submission to Apple, stapling — and refuses to run without a
 certificate. It needs an [Apple Developer Program](https://developer.apple.com)
 membership ($99/year). Setup steps are at the top of that script. With one,
-`MatsuFlow-x.y.z.dmg` opens with a genuine double-click on any Mac, no Terminal.
+`FreeFlow-x.y.z.dmg` opens with a genuine double-click on any Mac, no Terminal.
 
 The App Store is not an option: Flow uses the Accessibility APIs to paste into
 any app, and those are incompatible with the App Sandbox.

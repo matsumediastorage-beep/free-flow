@@ -46,7 +46,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             symbol = Permissions.allGranted ? "waveform" : "exclamationmark.triangle"
         }
 
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Flow")
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Free Flow")
         button.image?.isTemplate = true
     }
 

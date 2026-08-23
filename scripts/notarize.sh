@@ -15,7 +15,7 @@
 #   3. Create an app-specific password at appleid.apple.com > Sign-In and
 #      Security > App-Specific Passwords
 #   4. Store it once:
-#        xcrun notarytool store-credentials "matsu-flow" \
+#        xcrun notarytool store-credentials "free-flow" \
 #          --apple-id "you@example.com" \
 #          --team-id "YOURTEAMID" \
 #          --password "abcd-efgh-ijkl-mnop"
@@ -26,9 +26,9 @@ ROOT="$(pwd)"
 
 APP_NAME="Flow"
 BUNDLE="$ROOT/build/$APP_NAME.app"
-PROFILE="${NOTARY_PROFILE:-matsu-flow}"
+PROFILE="${NOTARY_PROFILE:-free-flow}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
-DMG="$ROOT/build/MatsuFlow-$VERSION.dmg"
+DMG="$ROOT/build/FreeFlow-$VERSION.dmg"
 
 # `|| true` matters: grep exits non-zero when there is no such certificate,
 # and under `set -e` that would kill the script before the helpful message

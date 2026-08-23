@@ -1,14 +1,14 @@
 #!/bin/bash
-# Matsu Flow installer.
+# Free Flow installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/matsumediastorage-beep/matsu-flow/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/matsumediastorage-beep/free-flow/main/install.sh | bash
 #
 # Downloads the latest release and installs it to /Applications.
 #
 # Why a Terminal installer rather than "download the DMG and double-click":
 # macOS attaches a `com.apple.quarantine` flag to anything a browser downloads,
 # and Gatekeeper refuses to open a quarantined app that Apple has not notarized.
-# Matsu Flow is signed with a self-signed certificate, not an Apple Developer ID,
+# Free Flow is signed with a self-signed certificate, not an Apple Developer ID,
 # so a browser download would be blocked. A file fetched by `gh` or `curl` never
 # gets the quarantine flag in the first place, so the app opens normally.
 #
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-REPO="${MATSU_FLOW_REPO:-matsumediastorage-beep/matsu-flow}"
+REPO="${FREE_FLOW_REPO:-matsumediastorage-beep/free-flow}"
 APP="/Applications/Flow.app"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -29,16 +29,16 @@ fail() { printf '\033[1;31m!!\033[0m %s\n' "$1" >&2; exit 1; }
 
 # --- Machine checks ---------------------------------------------------------
 
-[[ "$(uname -s)" == "Darwin" ]] || fail "Matsu Flow is macOS only."
+[[ "$(uname -s)" == "Darwin" ]] || fail "Free Flow is macOS only."
 
 if [[ "$(uname -m)" != "arm64" ]]; then
-  fail "Matsu Flow needs an Apple Silicon Mac (M-series). The speech model runs
+  fail "Free Flow needs an Apple Silicon Mac (M-series). The speech model runs
    on the Neural Engine, and there is no Intel build."
 fi
 
 MAJOR="$(sw_vers -productVersion | cut -d. -f1)"
 if (( MAJOR < 14 )); then
-  fail "Matsu Flow needs macOS 14 or later. This Mac is on $(sw_vers -productVersion)."
+  fail "Free Flow needs macOS 14 or later. This Mac is on $(sw_vers -productVersion)."
 fi
 
 # --- Download ---------------------------------------------------------------

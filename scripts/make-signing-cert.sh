@@ -64,7 +64,7 @@ EOF
 
 # A real password, not an empty one — `security import` handles empty passwords
 # inconsistently. The value doesn't matter; the bundle is deleted on exit.
-P12_PASS="matsu-flow-transient"
+P12_PASS="free-flow-transient"
 
 "$OPENSSL" pkcs12 -export \
   -inkey "$WORKDIR/key.pem" \

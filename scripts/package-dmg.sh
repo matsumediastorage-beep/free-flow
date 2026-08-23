@@ -21,7 +21,7 @@ ROOT="$(pwd)"
 APP_NAME="Flow"
 BUNDLE="$ROOT/build/$APP_NAME.app"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
-DMG="$ROOT/build/MatsuFlow-$VERSION.dmg"
+DMG="$ROOT/build/FreeFlow-$VERSION.dmg"
 STAGING="$(mktemp -d)"
 trap 'rm -rf "$STAGING"' EXIT
 
@@ -41,7 +41,7 @@ ln -s /Applications "$STAGING/Applications"
 # A short read-me visible in the mounted image, because the permission grants
 # are not optional and nobody reads a repo before dragging an icon.
 cat > "$STAGING/READ ME FIRST.txt" <<'EOF'
-Matsu Flow
+Free Flow
 ==========
 
 1. Drag Flow.app onto the Applications folder.
@@ -67,7 +67,7 @@ EOF
 echo "==> Building $DMG"
 rm -f "$DMG"
 hdiutil create \
-  -volname "Matsu Flow" \
+  -volname "Free Flow" \
   -srcfolder "$STAGING" \
   -ov -format UDZO \
   "$DMG" > /dev/null

@@ -2,10 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Display name only. CFBundleExecutable, CFBundleIdentifier and the
+	     bundle's filename on disk deliberately stay "Flow" /
+	     com.matsumedia.flow: macOS keys Accessibility, Input Monitoring and
+	     Microphone grants to the identifier, the path and the signature, so
+	     renaming any of those would silently reset every permission and orphan
+	     the API key in the Keychain. -->
 	<key>CFBundleName</key>
-	<string>Flow</string>
+	<string>Free Flow</string>
 	<key>CFBundleDisplayName</key>
-	<string>Flow</string>
+	<string>Free Flow</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.matsumedia.flow</string>
 	<key>CFBundleExecutable</key>

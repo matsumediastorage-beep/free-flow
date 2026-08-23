@@ -35,7 +35,7 @@ final class DashboardWindowController {
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Flow"
+            window.title = "Free Flow"
             window.titlebarAppearsTransparent = true
 
             // NavigationSplitView only vends its sidebar toggle — and

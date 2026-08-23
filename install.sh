@@ -1,11 +1,9 @@
 #!/bin/bash
 # Matsu Flow installer.
 #
-#   ./install.sh
+#   curl -fsSL https://raw.githubusercontent.com/matsumediastorage-beep/matsu-flow/main/install.sh | bash
 #
-# Downloads the latest release from the private repo and installs it to
-# /Applications. Authentication goes through the GitHub CLI, so nobody has to
-# paste a token anywhere.
+# Downloads the latest release and installs it to /Applications.
 #
 # Why a Terminal installer rather than "download the DMG and double-click":
 # macOS attaches a `com.apple.quarantine` flag to anything a browser downloads,
@@ -43,40 +41,28 @@ if (( MAJOR < 14 )); then
   fail "Matsu Flow needs macOS 14 or later. This Mac is on $(sw_vers -productVersion)."
 fi
 
-# --- GitHub access ----------------------------------------------------------
-
-if ! command -v gh >/dev/null 2>&1; then
-  fail "This needs the GitHub CLI, because the repo is private.
-
-   Install it:      brew install gh
-   Then sign in:    gh auth login
-   Then re-run:     ./install.sh"
-fi
-
-if ! gh auth status >/dev/null 2>&1; then
-  fail "You are not signed in to GitHub.
-
-   Run:  gh auth login
-   Then re-run this script."
-fi
-
-if ! gh repo view "$REPO" >/dev/null 2>&1; then
-  fail "Your GitHub account cannot see $REPO.
-
-   Ask Brandon to add you as a collaborator, then re-run this script."
-fi
-
 # --- Download ---------------------------------------------------------------
 
-say "Downloading the latest release of $REPO"
-gh release download -R "$REPO" -p '*.zip' -D "$TMP" --clobber \
-  || fail "No release found. Has one been published yet?"
+say "Finding the latest release"
+API="https://api.github.com/repos/$REPO/releases/latest"
+URL="$(curl -fsSL "$API" 2>/dev/null \
+  | grep '"browser_download_url"' \
+  | grep -o 'https://[^"]*\.zip' \
+  | head -1 || true)"
 
-ARCHIVE="$(find "$TMP" -maxdepth 1 -name '*.zip' | head -1)"
-[[ -n "$ARCHIVE" ]] || fail "The release had no .zip asset."
+if [[ -z "$URL" ]]; then
+  fail "Couldn't find a release to download.
 
-say "Unpacking $(basename "$ARCHIVE")"
-ditto -x -k "$ARCHIVE" "$TMP/unpacked" || fail "Could not unpack the archive."
+   Check your internet connection, or see:
+   https://github.com/$REPO/releases"
+fi
+
+say "Downloading $(basename "$URL")"
+curl -fL --progress-bar "$URL" -o "$TMP/Flow.zip" || fail "Download failed."
+
+say "Unpacking"
+# ditto, not unzip: it preserves the code signature and the bundle's symlinks.
+ditto -x -k "$TMP/Flow.zip" "$TMP/unpacked" || fail "Could not unpack the archive."
 
 SOURCE="$(find "$TMP/unpacked" -maxdepth 2 -name "Flow.app" -type d | head -1)"
 [[ -n "$SOURCE" ]] || fail "No Flow.app inside the archive."

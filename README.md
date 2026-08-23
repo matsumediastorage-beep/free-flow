@@ -135,10 +135,11 @@ out spelled right.
 
 ## Installing it on someone else's Mac
 
+Send them **https://matsumediastorage-beep.github.io/matsu-flow/** — a page with
+a copy button and one command:
+
 ```bash
-gh auth login                    # once, if you haven't
-gh repo clone matsumediastorage-beep/matsu-flow -- --depth 1
-cd matsu-flow && ./install.sh
+curl -fsSL https://raw.githubusercontent.com/matsumediastorage-beep/matsu-flow/main/install.sh | bash
 ```
 
 The installer checks the machine, pulls the latest release, puts `Flow.app` in
@@ -154,7 +155,7 @@ hasn't notarized — so shipping the `.dmg` by email or Slack gets everyone
 *"Apple could not verify Flow is free of malware"*, and on macOS 15+ the old
 right-click→Open trick no longer clears it.
 
-`gh` and `curl` aren't quarantine-aware, so a file they fetch never gets the
+`curl` isn't quarantine-aware, so a file they fetch never gets the
 flag. The installer removes no security check; it just never picks one up. The
 tradeoff is honest and worth stating: **your team trusts you instead of Apple.**
 Reasonable for an internal tool, not for public distribution.

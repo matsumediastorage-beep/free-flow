@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matsu Flow — talk instead of typing</title>
+<meta name="description" content="Private, on-device dictation for the Mac. Hold a key, talk, release.">
+<link rel="icon" href="icon.png">
+<style>
+  :root {
+    --bg: #f5f5f7;
+    --panel: #ffffff;
+    --ink: #1d1d1f;
+    --muted: #6e6e73;
+    --line: rgba(0,0,0,.10);
+    --accent: #7c4dff;
+    --code-bg: #1d1d1f;
+    --code-ink: #f5f5f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000;
+      --panel: #1c1c1e;
+      --ink: #f5f5f7;
+      --muted: #98989d;
+      --line: rgba(255,255,255,.12);
+      --code-bg: #2c2c2e;
+      --code-ink: #f5f5f7;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 72px 24px 96px; }
+
+  header { text-align: center; margin-bottom: 52px; }
+  .icon {
+    width: 128px; height: 128px; display: block; margin: 0 auto 24px;
+    filter: drop-shadow(0 12px 32px rgba(124,77,255,.30));
+  }
+  h1 {
+    font-size: 44px; line-height: 1.1; letter-spacing: -.022em;
+    font-weight: 700; margin: 0 0 12px;
+  }
+  .tagline { font-size: 21px; color: var(--muted); margin: 0; letter-spacing: -.01em; }
+
+  .install {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 18px; padding: 28px; margin: 0 0 20px;
+  }
+  .install h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+
+  .cmd { display: flex; align-items: stretch; gap: 10px; }
+  code.line {
+    flex: 1; background: var(--code-bg); color: var(--code-ink);
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 15px 17px; border-radius: 11px;
+    overflow-x: auto; white-space: nowrap; display: block;
+  }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 11px;
+    padding: 0 22px; font-size: 15px; font-weight: 600; cursor: pointer;
+    font-family: inherit; white-space: nowrap; transition: opacity .15s, transform .1s;
+  }
+  button:hover { opacity: .88; }
+  button:active { transform: scale(.97); }
+  button.done { background: #30a14e; }
+
+  .hint { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+
+  section { margin-top: 44px; }
+  h3 { font-size: 22px; letter-spacing: -.015em; margin: 0 0 14px; }
+
+  ol.steps { margin: 0; padding-left: 22px; }
+  ol.steps li { margin-bottom: 12px; }
+  ol.steps b { font-weight: 600; }
+
+  .perms { list-style: none; margin: 14px 0 0; padding: 0; }
+  .perms li {
+    display: flex; gap: 12px; padding: 13px 0; border-top: 1px solid var(--line);
+  }
+  .perms li:last-child { border-bottom: 1px solid var(--line); }
+  .perms .name { font-weight: 600; min-width: 148px; }
+  .perms .why { color: var(--muted); }
+
+  table.req { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  table.req td { padding: 11px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  table.req td:first-child { font-weight: 600; width: 42%; padding-right: 16px; }
+  table.req td:last-child { color: var(--muted); }
+
+  .note {
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 12px; padding: 18px 20px; margin-top: 22px;
+  }
+  .note p { margin: 0; font-size: 15px; color: var(--muted); }
+  .note p + p { margin-top: 10px; }
+  .note strong { color: var(--ink); }
+
+  footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 14px; text-align: center; }
+  a { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 48px 18px 64px; }
+    h1 { font-size: 34px; }
+    .tagline { font-size: 18px; }
+    .cmd { flex-direction: column; }
+    button { padding: 14px; }
+    .perms li { flex-direction: column; gap: 3px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img class="icon" src="icon.png" alt="Matsu Flow">
+    <h1>Matsu Flow</h1>
+    <p class="tagline">Hold a key, talk, release.<br>Clean text appears wherever your cursor is.</p>
+  </header>
+
+  <div class="install">
+    <h2>Install</h2>
+    <div class="cmd">
+      <code class="line" id="cmd">curl -fsSL https://raw.githubusercontent.com/matsumediastorage-beep/matsu-flow/main/install.sh | bash</code>
+      <button id="copy">Copy</button>
+    </div>
+    <p class="hint">Paste it into <b>Terminal</b> and press Return. Open Terminal with <b>⌘&nbsp;Space</b>, type “terminal”, Return.</p>
+  </div>
+
+  <section>
+    <h3>What happens</h3>
+    <ol class="steps">
+      <li>Downloads the app and puts it in <b>Applications</b>.</li>
+      <li>Asks for your Mac password — that's macOS letting it write to Applications, nothing more.</li>
+      <li>Opens, and asks for <b>three permissions</b>. You have to grant these yourself; macOS doesn't let any app do it for you.</li>
+      <li>Downloads the speech model, about <b>600 MB</b>, once. Then it works offline forever.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h3>The three permissions</h3>
+    <ul class="perms">
+      <li><span class="name">Accessibility</span><span class="why">Pastes text into whatever app you're in</span></li>
+      <li><span class="name">Input Monitoring</span><span class="why">Notices when you hold the dictation key</span></li>
+      <li><span class="name">Microphone</span><span class="why">Hears you</span></li>
+    </ul>
+    <div class="note">
+      <p><strong>Nothing works until all three are granted.</strong> The setup window links straight to the right page for each one. If you skip them, holding the key will appear to do nothing.</p>
+    </div>
+  </section>
+
+  <section>
+    <h3>Using it</h3>
+    <ol class="steps">
+      <li>Click into any text field.</li>
+      <li>Hold <b>Left Shift</b> for about half a second, then talk.</li>
+      <li>Release. Your words appear, tidied up.</li>
+    </ol>
+    <p class="hint">A quick tap does nothing on purpose — that's what stops Shift+A from triggering it. Pressing any other key while holding cancels. Prefer a different key? Dashboard&nbsp;→&nbsp;Settings&nbsp;→&nbsp;Dictation key; Right Option and Fn have no typing conflict at all.</p>
+  </section>
+
+  <section>
+    <h3>What you need</h3>
+    <table class="req">
+      <tr><td>Apple Silicon Mac</td><td>M1 or newer. There's no Intel version — the speech model runs on the Neural Engine.</td></tr>
+      <tr><td>macOS 14 or later</td><td>The installer checks and stops if not.</td></tr>
+      <tr><td>~600 MB free</td><td>Speech model, downloaded once.</td></tr>
+      <tr><td>macOS 26 + Apple&nbsp;Intelligence</td><td>Optional. Enables the free cleanup that removes “um”, fixes punctuation and applies spoken corrections. Without it you still get transcription.</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h3>Is it private?</h3>
+    <div class="note">
+      <p><strong>Your voice never leaves your Mac.</strong> Speech recognition and text cleanup both run on-device. There's no account, no server, and it works on a plane.</p>
+      <p>Dictation history is stored locally and only you can read it.</p>
+    </div>
+  </section>
+
+  <section>
+    <h3>If macOS says it can't verify the app</h3>
+    <div class="note">
+      <p>It shouldn't — the Terminal command avoids that. But if you downloaded the app in a <strong>browser</strong> instead, macOS blocks it, because this app isn't notarized by Apple.</p>
+      <p>Fix: delete what you downloaded and use the command above instead.</p>
+    </div>
+  </section>
+
+  <footer>
+    Built by Matsu Media · <a href="https://github.com/matsumediastorage-beep/matsu-flow">Source on GitHub</a>
+  </footer>
+
+</div>
+
+<script>
+  const button = document.getElementById('copy');
+  const command = document.getElementById('cmd').textContent.trim();
+
+  function flash(text, ok) {
+    button.textContent = text;
+    button.classList.toggle('done', ok);
+    setTimeout(() => {
+      button.textContent = 'Copy';
+      button.classList.remove('done');
+    }, 1800);
+  }
+
+  function copyBySelection() {
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById('cmd'));
+    const selection = getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const ok = document.execCommand('copy');
+    selection.removeAllRanges();
+    return ok;
+  }
+
+  button.addEventListener('click', () => {
+    // Feedback first, synchronously. navigator.clipboard is a promise, and
+    // waiting on it means the button sits there looking dead on a slow write —
+    // which reads as "the button is broken", the one thing this page must not do.
+    flash('Copied', true);
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(command).catch(() => {
+        if (!copyBySelection()) flash('Press ⌘C', false);
+      });
+    } else if (!copyBySelection()) {
+      // No clipboard access at all: leave the command selected so ⌘C works.
+      flash('Press ⌘C', false);
+    }
+  });
+
+</script>
+</body>
+</html>

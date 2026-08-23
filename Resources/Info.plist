@@ -2,13 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key>
-	<string>Flow</string>
 	<key>CFBundleDisplayName</key>
 	<string>Flow</string>
+	<key>CFBundleExecutable</key>
+	<string>Flow</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.matsumedia.flow</string>
-	<key>CFBundleExecutable</key>
+	<key>CFBundleName</key>
 	<string>Flow</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
@@ -18,18 +20,9 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
-
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-
-	<!-- Not an LSUIElement: Flow shows in the Dock by default so it's easy to
-	     find. The Dock/menu-bar choice is a setting, applied at runtime via
-	     NSApplication.setActivationPolicy. -->
-
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Flow listens while you hold your dictation key, and transcribes your speech on-device.</string>
-
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Flow listens while you hold your dictation key, and transcribes your speech on-device.</string>
 </dict>
 </plist>

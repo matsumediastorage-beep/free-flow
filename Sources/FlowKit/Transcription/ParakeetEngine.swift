@@ -9,7 +9,6 @@ import Foundation
 actor ParakeetEngine: TranscriptionEngine {
 
     private var manager: AsrManager?
-    private var decoderState: TdtDecoderState?
 
     /// Below this, Parakeet has nothing useful to work with and the user almost
     /// certainly triggered by accident.
@@ -36,8 +35,6 @@ actor ParakeetEngine: TranscriptionEngine {
         try await manager.loadModels(models)
 
         self.manager = manager
-        self.decoderState = TdtDecoderState.make(
-            decoderLayers: await manager.decoderLayerCount)
         loadSeconds = Date().timeIntervalSince(loadStart)
 
         // Announced separately because it has no percentage and takes seconds.
@@ -72,12 +69,9 @@ actor ParakeetEngine: TranscriptionEngine {
         // fresh — carrying state over would leak context between them.
         var state = TdtDecoderState.make(decoderLayers: await manager.decoderLayerCount)
         let result = try await manager.transcribe(samples, decoderState: &state)
-        self.decoderState = state
 
         return Transcript(
             text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
-            confidence: result.confidence,
-            audioDuration: result.duration,
             processingTime: result.processingTime
         )
     }

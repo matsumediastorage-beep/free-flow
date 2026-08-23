@@ -5,7 +5,6 @@
 //   swift scripts/icon-from-image.swift artwork.png
 //
 // Use this when the artwork comes from a designer or an image generator.
-// `make-icon.swift` is the other path — it draws the icon in code.
 //
 // Generated artwork is never quite icon-ready, and three things go wrong every
 // time. This fixes all of them automatically rather than by eyeballing numbers:

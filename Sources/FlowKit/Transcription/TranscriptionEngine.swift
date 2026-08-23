@@ -2,9 +2,9 @@ import Foundation
 
 struct Transcript: Sendable {
     let text: String
-    let confidence: Float
-    /// Length of the audio, not the time spent transcribing.
-    let audioDuration: TimeInterval
+    /// Time spent in the model, for the log line. The dictation's *audio*
+    /// length is computed from the sample count in `DictationController`,
+    /// which is the number that reaches history.
     let processingTime: TimeInterval
 }
 

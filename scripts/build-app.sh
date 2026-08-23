@@ -29,8 +29,13 @@ IDENTITY_NAME="Matsu Flow Dev"
 echo "==> Building ($CONFIG)"
 # -gnone in release: SwiftPM emits DWARF debug info even for release builds,
 # which is dead weight in a shipped binary. Debug builds keep it.
+# -gnone: SwiftPM emits DWARF debug info even for release builds, which is dead
+#   weight in a shipped binary. Debug builds keep it.
+# -Osize: optimise for size rather than speed. Worth 18% of the binary, and the
+#   latency-critical work is CoreML inference and one RMS loop over 1024
+#   samples — neither is sensitive to how aggressively Swift inlines.
 SWIFT_FLAGS=()
-[[ "$CONFIG" == "release" ]] && SWIFT_FLAGS=(-Xswiftc -gnone)
+[[ "$CONFIG" == "release" ]] && SWIFT_FLAGS=(-Xswiftc -gnone -Xswiftc -Osize)
 
 swift build -c "$CONFIG" --product "$APP_NAME" "${SWIFT_FLAGS[@]}"
 BIN_PATH="$(swift build -c "$CONFIG" --product "$APP_NAME" "${SWIFT_FLAGS[@]}" --show-bin-path)/$APP_NAME"

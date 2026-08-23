@@ -24,7 +24,16 @@
 import AppKit
 import Foundation
 
-let sizes = [16, 32, 64, 128, 256, 512, 1024]
+// The ten representations an .iconset may contain, as (pixel size, name).
+// `icon_1024x1024.png` and `icon_64x64.png` are NOT valid iconset names —
+// iconutil ignores them, so emitting them was pure wasted work.
+let variants: [(pixels: Int, name: String)] = [
+    (16, "icon_16x16"), (32, "icon_16x16@2x"),
+    (32, "icon_32x32"), (64, "icon_32x32@2x"),
+    (128, "icon_128x128"), (256, "icon_128x128@2x"),
+    (256, "icon_256x256"), (512, "icon_256x256@2x"),
+    (512, "icon_512x512"), (1024, "icon_512x512@2x"),
+]
 
 /// Fraction of the canvas Apple's grid gives the solid shape of a
 /// rounded-rectangle icon: 824 of 1024 points.
@@ -199,19 +208,22 @@ let outputDir = URL(fileURLWithPath: "build/AppIcon.iconset")
 try? FileManager.default.removeItem(at: outputDir)
 try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
-for size in sizes {
-    guard let data = render(size: size) else {
-        FileHandle.standardError.write("!! Failed at \(size)px\n".data(using: .utf8)!)
-        exit(1)
+// Render each distinct pixel size once, then write it under every name that
+// wants it — the 2x names are the same image as the next size up.
+var rendered: [Int: Data] = [:]
+for variant in variants {
+    if rendered[variant.pixels] == nil {
+        guard let data = render(size: variant.pixels) else {
+            FileHandle.standardError.write(
+                "!! Failed at \(variant.pixels)px\n".data(using: .utf8)!)
+            exit(1)
+        }
+        rendered[variant.pixels] = data
     }
-    // iconutil wants both the 1x name and the 2x name of the half size.
-    try data.write(to: outputDir.appendingPathComponent("icon_\(size)x\(size).png"))
-    if size > 16 {
-        try data.write(
-            to: outputDir.appendingPathComponent("icon_\(size / 2)x\(size / 2)@2x.png"))
-    }
+    try rendered[variant.pixels]!.write(
+        to: outputDir.appendingPathComponent("\(variant.name).png"))
 }
-print("==> Rendered \(sizes.count) sizes")
+print("==> Rendered \(rendered.count) sizes into \(variants.count) representations")
 
 let iconutil = Process()
 iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")

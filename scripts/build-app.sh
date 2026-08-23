@@ -27,8 +27,13 @@ BUNDLE="$ROOT/build/$APP_NAME.app"
 IDENTITY_NAME="Matsu Flow Dev"
 
 echo "==> Building ($CONFIG)"
-swift build -c "$CONFIG" --product "$APP_NAME"
-BIN_PATH="$(swift build -c "$CONFIG" --product "$APP_NAME" --show-bin-path)/$APP_NAME"
+# -gnone in release: SwiftPM emits DWARF debug info even for release builds,
+# which is dead weight in a shipped binary. Debug builds keep it.
+SWIFT_FLAGS=()
+[[ "$CONFIG" == "release" ]] && SWIFT_FLAGS=(-Xswiftc -gnone)
+
+swift build -c "$CONFIG" --product "$APP_NAME" "${SWIFT_FLAGS[@]}"
+BIN_PATH="$(swift build -c "$CONFIG" --product "$APP_NAME" "${SWIFT_FLAGS[@]}" --show-bin-path)/$APP_NAME"
 
 if [[ ! -x "$BIN_PATH" ]]; then
   echo "!! Build produced no binary at $BIN_PATH" >&2
@@ -39,6 +44,23 @@ echo "==> Assembling $APP_NAME.app"
 rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$BIN_PATH" "$BUNDLE/Contents/MacOS/$APP_NAME"
+
+# Strip the release binary — 8.6MB to 4.4MB, about half the app.
+#
+# Must happen BEFORE signing: strip rewrites the Mach-O and would otherwise
+# invalidate the signature, which on this app means macOS forgetting every
+# permission grant.
+#
+# The cost is that crash reports come back unsymbolicated. Keep the unstripped
+# binary next to the bundle so a crash can still be read:
+#   atos -o build/Flow.unstripped -arch arm64 -l <load address> <address>
+if [[ "$CONFIG" == "release" ]]; then
+  cp "$BIN_PATH" "$ROOT/build/$APP_NAME.unstripped"
+  BEFORE="$(stat -f%z "$BUNDLE/Contents/MacOS/$APP_NAME")"
+  strip -rSTx "$BUNDLE/Contents/MacOS/$APP_NAME" 2>/dev/null
+  AFTER="$(stat -f%z "$BUNDLE/Contents/MacOS/$APP_NAME")"
+  echo "==> Stripped: $((BEFORE / 1024))K -> $((AFTER / 1024))K"
+fi
 cp "$ROOT/Resources/Info.plist" "$BUNDLE/Contents/Info.plist"
 
 # Bundled resources (app icon, etc.) if any exist.

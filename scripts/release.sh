@@ -42,7 +42,10 @@ echo "==> Tagging"
 git add -A
 git commit -m "Release $VERSION" || echo "    (nothing to commit)"
 git tag -f "v$VERSION"
-git push origin HEAD --tags
+git push origin HEAD
+# --force so re-cutting the same version (a bad build, a last-minute fix)
+# moves the tag instead of failing. `--tags` alone never overwrites.
+git push origin --force "refs/tags/v$VERSION"
 
 echo "==> Publishing"
 gh release create "v$VERSION" "$ZIP" \

@@ -1,8 +1,12 @@
 import AppKit
+import FlowKit
 
 /// Entry point. We drive `NSApplication` manually rather than using the SwiftUI
 /// `App` lifecycle because Flow is an accessory (menu-bar) app that owns a
 /// non-activating overlay panel — both of which are easier to control from AppKit.
+///
+/// Everything real lives in `FlowKit`; this target is only the shim that starts
+/// it, so the app's logic can be linked into a test runner too.
 @main
 @MainActor
 enum FlowMain {

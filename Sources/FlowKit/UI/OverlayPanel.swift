@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 /// The floating pill that appears while you dictate.
@@ -61,12 +62,65 @@ final class OverlayPanel: NSPanel {
         setFrameOrigin(origin)
     }
 
+    /// Fades and lifts the panel into place.
+    ///
+    /// The pill is a transient thing that appears under your hands mid-sentence,
+    /// so it should arrive rather than blink into existence — but it also can't
+    /// be slow, because it's competing with the sound of your own voice. ~140ms
+    /// with a slight upward drift is the shortest move that still reads as one.
     func present() {
+        let wasVisible = isVisible
         reposition()
+
+        guard !wasVisible else {
+            orderFrontRegardless()
+            return
+        }
+
+        alphaValue = 0
+        let target = frame
+        setFrameOrigin(NSPoint(x: target.origin.x, y: target.origin.y - 8))
         orderFrontRegardless()  // show without activating the app
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.14
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().alphaValue = 1
+            animator().setFrame(target, display: true)
+        }
     }
 
     func dismiss() {
-        orderOut(nil)
+        guard isVisible else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.12
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            guard let self, self.alphaValue < 0.05 else { return }
+            self.orderOut(nil)
+        }
+    }
+
+    /// Grows or shrinks around the centre, so the pill stays put horizontally
+    /// while its contents change length.
+    func resize(to size: NSSize, animated: Bool) {
+        let current = frame
+        let target = NSRect(
+            x: current.midX - size.width / 2,
+            y: current.origin.y,
+            width: size.width,
+            height: size.height
+        )
+        guard animated, isVisible else {
+            setFrame(target, display: true)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.22, 1, 0.36, 1)  // a gentle overshoot-free ease
+            animator().setFrame(target, display: true)
+        }
     }
 }

@@ -70,8 +70,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             }
         }
 
-        if case .preparing(let fraction) = dictation.state {
+        switch dictation.state {
+        case .preparing(.loading(let fraction)):
             addDisabled("Loading speech model… \(Int(fraction * 100))%")
+        case .preparing(.warming):
+            addDisabled("Warming up the speech model…")
+        default:
+            break
         }
         if dictation.isHandsFree {
             addDisabled("Hands-free mode on")

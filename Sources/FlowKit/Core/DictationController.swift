@@ -5,8 +5,8 @@ import os
 
 enum DictationState: Equatable, Sendable {
     case idle
-    /// First-run model download / load.
-    case preparing(Double)
+    /// First-run model download, then the CoreML warm-up.
+    case preparing(PreparePhase)
     case listening
     case transcribing
     case finished(String)
@@ -32,6 +32,9 @@ final class DictationController {
     /// Lets the overlay show and hide itself without polling.
     var onStateChange: ((DictationState) -> Void)?
 
+    /// Fired once models are loaded and warmed, with how long each phase took.
+    var onEngineReady: ((_ loadSeconds: Double, _ warmupSeconds: Double) -> Void)?
+
     private let settings: Settings
     private let history: HistoryStore
     private let engine: any TranscriptionEngine
@@ -48,6 +51,10 @@ final class DictationController {
 
     /// Debounces opening the mic; see `schedulePrewarm()`.
     private var prewarmTask: Task<Void, Never>?
+
+    /// The in-flight model load. A dictation that lands before the engine is
+    /// ready awaits this rather than throwing the recording away.
+    private var prepareTask: Task<Void, Error>?
 
     init(
         settings: Settings,
@@ -93,16 +100,23 @@ final class DictationController {
 
     /// Downloads (first run) and loads the speech models.
     func prepareEngine() {
-        Task { [weak self] in
+        prepareTask = Task { [weak self] in
             guard let self else { return }
             do {
-                self.state = .preparing(0)
-                try await self.engine.prepare { fraction in
+                self.state = .preparing(.loading(0))
+                try await self.engine.prepare { phase in
                     Task { @MainActor [weak self] in
-                        self?.state = .preparing(fraction)
+                        self?.state = .preparing(phase)
                     }
                 }
                 self.state = .idle
+
+                let load = await self.engine.loadSeconds
+                let warmup = await self.engine.warmupSeconds
+                self.logger.info(
+                    "Engine ready — load \(load, format: .fixed(precision: 2))s, warmup \(warmup, format: .fixed(precision: 2))s"
+                )
+                self.onEngineReady?(load, warmup)
             } catch {
                 self.logger.error("Model load failed: \(error.localizedDescription)")
                 self.state = .failed("Couldn't load the speech model.")
@@ -197,6 +211,14 @@ final class DictationController {
         Task { [weak self] in
             guard let self else { return }
             do {
+                // Speaking right after launch shouldn't cost you the recording.
+                // The load is normally sub-second, so waiting it out beats
+                // failing — the audio is already captured either way.
+                if await !self.engine.isReady {
+                    self.logger.info("Dictation arrived before the model; waiting for load")
+                    try? await self.prepareTask?.value
+                }
+
                 let transcript = try await self.engine.transcribe(samples)
 
                 guard !transcript.text.isEmpty else {

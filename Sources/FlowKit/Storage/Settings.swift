@@ -16,8 +16,18 @@ final class Settings {
             Hotkey(rawValue: defaults.string(forKey: Keys.hotkey) ?? "") ?? .leftShift
         self.holdThreshold =
             defaults.object(forKey: Keys.holdThreshold) as? Double ?? 0.3
-        self.aiCleanupEnabled =
-            defaults.object(forKey: Keys.aiCleanup) as? Bool ?? true
+        // Migration: `aiCleanupEnabled` was a Bool before there was more than
+        // one engine to choose from. An old `true` means "clean it up", which
+        // now resolves to the free on-device pass rather than a paid one.
+        if let raw = defaults.string(forKey: Keys.cleanupEngine),
+            let engine = CleanupEngine(rawValue: raw)
+        {
+            self.cleanupEngine = engine
+        } else if let legacy = defaults.object(forKey: Keys.aiCleanup) as? Bool {
+            self.cleanupEngine = legacy ? .onDevice : .off
+        } else {
+            self.cleanupEngine = .onDevice
+        }
         self.vocabulary = defaults.stringArray(forKey: Keys.vocabulary) ?? []
         self.retentionDays = defaults.object(forKey: Keys.retentionDays) as? Int ?? 0
         self.playSounds = defaults.object(forKey: Keys.playSounds) as? Bool ?? true
@@ -39,8 +49,8 @@ final class Settings {
         didSet { defaults.set(holdThreshold, forKey: Keys.holdThreshold) }
     }
 
-    var aiCleanupEnabled: Bool {
-        didSet { defaults.set(aiCleanupEnabled, forKey: Keys.aiCleanup) }
+    var cleanupEngine: CleanupEngine {
+        didSet { defaults.set(cleanupEngine.rawValue, forKey: Keys.cleanupEngine) }
     }
 
     /// Names and jargon the AI pass should spell correctly.
@@ -60,7 +70,8 @@ final class Settings {
     private enum Keys {
         static let hotkey = "hotkey"
         static let holdThreshold = "holdThreshold"
-        static let aiCleanup = "aiCleanupEnabled"
+        static let aiCleanup = "aiCleanupEnabled"  // legacy, read once for migration
+        static let cleanupEngine = "cleanupEngine"
         static let vocabulary = "vocabulary"
         static let retentionDays = "retentionDays"
         static let playSounds = "playSounds"

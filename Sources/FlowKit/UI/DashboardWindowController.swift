@@ -30,14 +30,27 @@ final class DashboardWindowController {
             )
 
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 680, height: 540),
+                contentRect: NSRect(x: 0, y: 0, width: 780, height: 560),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
             window.title = "Flow"
             window.titlebarAppearsTransparent = true
+
+            // NavigationSplitView only vends its sidebar toggle — and
+            // `.searchable(placement: .toolbar)` only has anywhere to go — if
+            // the window actually owns a toolbar. Without one you get a bare
+            // title bar and the search field silently falls back into the
+            // content area.
+            let toolbar = NSToolbar(identifier: "FlowDashboard")
+            toolbar.displayMode = .iconOnly
+            toolbar.allowsUserCustomization = false
+            window.toolbar = toolbar
+            window.toolbarStyle = .unified
+
             window.contentView = NSHostingView(rootView: view)
+            window.setFrameAutosaveName("FlowDashboard")
             window.center()
             window.isReleasedWhenClosed = false
             self.window = window

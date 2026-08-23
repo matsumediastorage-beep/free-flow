@@ -23,8 +23,23 @@ struct ClaudeFormatter: TextFormatter {
     private static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
     private static let apiVersion = "2023-06-01"
 
-    /// Past this we'd rather paste raw text than make you wait.
-    private static let timeout: TimeInterval = 1.5
+    /// The longest we'd ever wait before pasting raw text instead.
+    private static let ceiling: TimeInterval = 5.0
+    /// The shortest budget, covering the network round trip on a short phrase.
+    private static let floor: TimeInterval = 1.2
+
+    /// How long to wait on a transcript of this length.
+    ///
+    /// A flat budget quietly punished long dictations. The model has more text
+    /// to rewrite, so a paragraph legitimately takes longer than a one-liner —
+    /// and with a fixed 1.5s the paragraph was the case that always timed out
+    /// and fell back to the raw transcript, which is precisely the case where
+    /// cleanup is worth the most. Fixed round-trip cost, plus time proportional
+    /// to length.
+    static func timeout(forCharacterCount count: Int) -> TimeInterval {
+        let perCharacter: TimeInterval = 0.0025  // ~15ms per six-character word
+        return min(ceiling, floor + Double(count) * perCharacter)
+    }
 
     private let apiKey: String
     private let fallback: any TextFormatter
@@ -36,8 +51,10 @@ struct ClaudeFormatter: TextFormatter {
         self.fallback = fallback
 
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = Self.timeout
-        config.timeoutIntervalForResource = Self.timeout
+        // The session caps at the ceiling; each request narrows it to the
+        // budget its own length earns, via `URLRequest.timeoutInterval`.
+        config.timeoutIntervalForRequest = Self.ceiling
+        config.timeoutIntervalForResource = Self.ceiling
         config.waitsForConnectivity = false  // fail fast when offline
         self.session = URLSession(configuration: config)
     }
@@ -46,17 +63,33 @@ struct ClaudeFormatter: TextFormatter {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !apiKey.isEmpty else { return trimmed }
 
+        let started = Date()
         do {
             let cleaned = try await requestCleanup(trimmed, context: context)
             let result = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             // An empty or absurdly inflated response means something went wrong
             // with the model's instruction-following — don't trust it.
             guard !result.isEmpty, result.count < trimmed.count * 3 + 200 else {
+                CleanupStatus(
+                    at: Date(), succeeded: false,
+                    detail: "Model returned an unusable response",
+                    seconds: Date().timeIntervalSince(started)
+                ).write()
                 return await fallback.format(trimmed, context: context)
             }
+            CleanupStatus(
+                at: Date(), succeeded: true,
+                detail: result == trimmed ? "Nothing needed changing" : "Cleaned",
+                seconds: Date().timeIntervalSince(started)
+            ).write()
             return result
         } catch {
             logger.error("Cleanup failed, using raw transcript: \(error.localizedDescription)")
+            CleanupStatus(
+                at: Date(), succeeded: false,
+                detail: error.localizedDescription,
+                seconds: Date().timeIntervalSince(started)
+            ).write()
             return await fallback.format(trimmed, context: context)
         }
     }
@@ -69,7 +102,7 @@ struct ClaudeFormatter: TextFormatter {
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
-        request.timeoutInterval = Self.timeout
+        request.timeoutInterval = Self.timeout(forCharacterCount: raw.count)
 
         // Cleaned text is never much longer than the input; this cap is
         // generous enough to never truncate a real dictation.
@@ -91,7 +124,11 @@ struct ClaudeFormatter: TextFormatter {
             throw FormatterError.badResponse
         }
         guard http.statusCode == 200 else {
-            throw FormatterError.httpError(status: http.statusCode)
+            // The body carries the actual reason (bad key, no credit, bad
+            // model id). Surfacing just the status code would waste everyone's
+            // time guessing which.
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw FormatterError.httpError(status: http.statusCode, body: body)
         }
 
         let decoded = try JSONDecoder().decode(MessagesResponse.self, from: data)
@@ -187,15 +224,27 @@ private struct MessagesResponse: Decodable {
 }
 
 enum FormatterError: LocalizedError {
+    /// Pulls `error.message` out of the API's JSON error envelope.
+    fileprivate static func apiMessage(from body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let error = root["error"] as? [String: Any],
+            let message = error["message"] as? String
+        else { return nil }
+        return message
+    }
+
     case badResponse
-    case httpError(status: Int)
+    case httpError(status: Int, body: String)
     case refused
     case noTextBlock
 
     var errorDescription: String? {
         switch self {
         case .badResponse: return "Unexpected response from the cleanup service."
-        case .httpError(let status): return "Cleanup service returned HTTP \(status)."
+        case .httpError(let status, let body):
+            let reason = Self.apiMessage(from: body) ?? body.prefix(200).description
+            return "HTTP \(status) — \(reason)"
         case .refused: return "Cleanup request was declined."
         case .noTextBlock: return "Cleanup response contained no text."
         }

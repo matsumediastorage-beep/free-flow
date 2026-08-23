@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Notarization requires the hardened runtime, and the hardened runtime
+	     denies microphone access unless it is asked for explicitly here. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+
+	<!-- Flow is deliberately NOT sandboxed: the Accessibility APIs that let it
+	     paste into any app are incompatible with the App Sandbox. That rules
+	     out the Mac App Store and makes Developer ID the only route. -->
+</dict>
+</plist>

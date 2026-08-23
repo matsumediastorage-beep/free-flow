@@ -9,6 +9,12 @@ final class OverlayController {
     private let controller: DictationController
     private var hideTask: Task<Void, Never>?
 
+    /// Read once here rather than per-frame; the panel is AppKit, so it can't
+    /// pick this up from the SwiftUI environment the way the pill's contents do.
+    private var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
     init(controller: DictationController) {
         self.controller = controller
         self.panel = OverlayPanel {
@@ -33,10 +39,14 @@ final class OverlayController {
             }
 
         case .listening, .transcribing, .finished, .failed, .preparing:
+            let wasVisible = panel.isVisible
             // Resize to fit the current content before showing.
             panel.contentView?.layoutSubtreeIfNeeded()
             if let fitting = panel.contentView?.fittingSize, fitting.width > 0 {
-                panel.setContentSize(fitting)
+                // Only animate a resize the user can actually see — an
+                // already-hidden panel should just be the right size when it
+                // arrives.
+                panel.resize(to: fitting, animated: wasVisible && !reduceMotion)
             }
             panel.present()
         }

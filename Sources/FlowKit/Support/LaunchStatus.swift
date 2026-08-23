@@ -22,6 +22,10 @@ struct LaunchStatus: Codable {
     let hotkeyTapActive: Bool
     let hotkey: String
     let speechModelReady: Bool
+    /// Seconds spent loading CoreML models, and seconds spent on the throwaway
+    /// warm-up inference. Together these are the whole "why isn't it ready yet".
+    let modelLoadSeconds: Double
+    let modelWarmupSeconds: Double
     /// Which copy of the app is reporting. If two builds exist, this is how you
     /// tell whether the one you granted is the one that's running.
     let appPath: String

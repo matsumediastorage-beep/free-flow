@@ -15,15 +15,20 @@ actor ParakeetEngine: TranscriptionEngine {
     /// certainly triggered by accident.
     private let minimumSamples = Int(AudioRecorder.sampleRate * 0.25)
 
+    /// How long the last `prepare()` took, split into its two real costs.
+    private(set) var loadSeconds: Double = 0
+    private(set) var warmupSeconds: Double = 0
+
     var isReady: Bool { manager != nil }
 
-    func prepare(progress: @escaping @Sendable (Double) -> Void) async throws {
+    func prepare(progress: @escaping @Sendable (PreparePhase) -> Void) async throws {
         guard manager == nil else { return }
 
+        let loadStart = Date()
         let models = try await AsrModels.downloadAndLoad(
             version: .v3,
             progressHandler: { value in
-                progress(value.fractionCompleted)
+                progress(.loading(value.fractionCompleted))
             }
         )
 
@@ -33,6 +38,30 @@ actor ParakeetEngine: TranscriptionEngine {
         self.manager = manager
         self.decoderState = TdtDecoderState.make(
             decoderLayers: await manager.decoderLayerCount)
+        loadSeconds = Date().timeIntervalSince(loadStart)
+
+        // Announced separately because it has no percentage and takes seconds.
+        // Reporting it as "100%" was why launch looked frozen at the end.
+        progress(.warming)
+        await warmUp(manager)
+    }
+
+    /// Runs one throwaway inference so the user's first real dictation isn't
+    /// the one that pays for it.
+    ///
+    /// CoreML defers most of its work until the first prediction — compiling
+    /// the graph and specialising it for the Neural Engine. That first call can
+    /// take seconds; every call after it is ~100ms. Burning that cost at launch,
+    /// on silence, is the difference between "instant" and "why is it hanging".
+    private func warmUp(_ manager: AsrManager) async {
+        let warmupStart = Date()
+        // Just past `minimumSamples`, so the engine does real work on the
+        // shortest input it will ever accept. A longer buffer costs more launch
+        // time without specialising anything extra.
+        let silence = [Float](repeating: 0, count: Int(AudioRecorder.sampleRate * 0.3))
+        var state = TdtDecoderState.make(decoderLayers: await manager.decoderLayerCount)
+        _ = try? await manager.transcribe(silence, decoderState: &state)
+        warmupSeconds = Date().timeIntervalSince(warmupStart)
     }
 
     func transcribe(_ samples: [Float]) async throws -> Transcript {

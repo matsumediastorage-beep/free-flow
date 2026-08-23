@@ -3,7 +3,9 @@ import ApplicationServices
 import os
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate {
+
+    public override init() { super.init() }
 
     private let settings = Settings()
     private let history = HistoryStore()
@@ -15,7 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dashboard: DashboardWindowController!
     private var menuBar: MenuBarController!
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    private var modelLoadSeconds: Double = 0
+    private var modelWarmupSeconds: Double = 0
+
+    public func applicationDidFinishLaunching(_ notification: Notification) {
         applyActivationPolicy()
 
         dictation = DictationController(
@@ -45,7 +50,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Load the speech model regardless of permissions — it's a slow
         // first-run download, and there's no reason to make the user wait for
         // it after they finish granting access.
+        dictation.onEngineReady = { [weak self] load, warmup in
+            self?.modelLoadSeconds = load
+            self?.modelWarmupSeconds = warmup
+            self?.writeStatus()
+        }
         dictation.prepareEngine()
+
+        // Same reasoning as the speech model's warm-up: the first generation
+        // costs ~3s cold and about a second warm, so pay it at launch on a
+        // throwaway prompt rather than on the user's first real dictation.
+        if settings.cleanupEngine == .onDevice {
+            Task.detached(priority: .utility) { await AppleFormatter.warmUp() }
+        }
 
         startListening()
 
@@ -92,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Clicking the Dock icon should open the dashboard, not just bounce.
-    func applicationShouldHandleReopen(
+    public func applicationShouldHandleReopen(
         _ sender: NSApplication, hasVisibleWindows: Bool
     ) -> Bool {
         dashboard.show()
@@ -101,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Closing the dashboard shouldn't quit — Flow keeps listening in the
     /// background, which is the entire point of it.
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+    public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
 
@@ -134,28 +151,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hotkeyTapActive: dictation.isListening,
             hotkey: settings.hotkey.displayName,
             speechModelReady: modelsExist,
+            modelLoadSeconds: modelLoadSeconds,
+            modelWarmupSeconds: modelWarmupSeconds,
             appPath: Bundle.main.bundlePath
         ).write()
     }
 
     /// Picks the cleanup pass that matches the current settings.
     private func applyFormatter() {
-        guard settings.aiCleanupEnabled else {
+        switch settings.cleanupEngine {
+        case .off:
             dictation.formatter = PassthroughFormatter()
-            return
-        }
-        if let key = KeychainStore.apiKey, !key.isEmpty {
-            dictation.formatter = ClaudeFormatter(apiKey: key)
-        } else {
-            // Cleanup is on but there's no key — do what we can locally.
-            dictation.formatter = LocalFormatter()
+
+        case .onDevice:
+            // Falls back to rule-based cleanup by itself if Apple Intelligence
+            // is off or the model is still downloading.
+            dictation.formatter = AppleFormatter()
+
+        case .claude:
+            if let key = KeychainStore.apiKey, !key.isEmpty {
+                dictation.formatter = ClaudeFormatter(apiKey: key)
+            } else {
+                // Claude is selected but there's no key. Prefer the on-device
+                // model over rule-based cleanup — it's free and already here.
+                dictation.formatter =
+                    AppleFormatter.isAvailable ? AppleFormatter() : LocalFormatter()
+            }
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    public func applicationWillTerminate(_ notification: Notification) {
         dictation.stop()
         history.save()
     }
 
-    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+    public func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 }

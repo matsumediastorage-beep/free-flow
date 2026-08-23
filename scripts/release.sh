@@ -20,7 +20,15 @@ BUNDLE="$ROOT/build/Flow.app"
 ZIP="$ROOT/build/MatsuFlow-$VERSION.zip"
 
 echo "==> Stamping version $VERSION"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$ROOT/Resources/Info.plist"
+# sed, not PlistBuddy. PlistBuddy rewrites the entire file — it strips the
+# comments and alphabetises the keys — so a version bump would silently delete
+# the notes explaining why LSUIElement is absent. This touches one line.
+/usr/bin/sed -i '' -E \
+  "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>[^<]*</string>|<string>$VERSION</string>|;}" \
+  "$ROOT/Resources/Info.plist"
+
+ACTUAL="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/Info.plist")"
+[[ "$ACTUAL" == "$VERSION" ]] || { echo "!! Version stamp failed (got '$ACTUAL')" >&2; exit 1; }
 
 echo "==> Building"
 "$ROOT/scripts/build-app.sh" release

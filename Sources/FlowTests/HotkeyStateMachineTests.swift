@@ -90,6 +90,30 @@ func registerHotkeyTests(_ suite: TestSuite) async {
         suite.expectEqual(h.events, [.armed, .cancelled])
     }
 
+    await suite.test("reapplying the same hotkey leaves a recording active") {
+        let monitor = HotkeyMonitor()
+        let h = Harness()
+        monitor.machine.scheduleHoldTimer = { _, body in body() }
+        monitor.onEvent = { h.events.append($0) }
+        monitor.machine.receive(.triggerDown)
+        suite.expect(monitor.machine.isRecording)
+        monitor.hotkey = .rightShift
+        suite.expect(monitor.machine.isRecording)
+        suite.expect(!h.events.contains(.cancelled))
+    }
+
+    await suite.test("changing the hotkey cancels capture and clears hands-free state") {
+        let monitor = HotkeyMonitor()
+        var events: [HotkeyEvent] = []
+        monitor.onEvent = { events.append($0) }
+        monitor.machine.scheduleHoldTimer = { _, body in body() }
+        monitor.machine.receive(.triggerDown)
+        monitor.hotkey = .leftShift
+        suite.expect(!monitor.machine.isRecording)
+        suite.expect(events.contains(.cancelled))
+        suite.expectEqual(events.last, .handsFreeChanged(false))
+    }
+
     // MARK: - Deliberate holds
 
     await suite.test("holding alone starts and stops recording") {

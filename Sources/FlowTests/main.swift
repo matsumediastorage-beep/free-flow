@@ -9,11 +9,16 @@ let suite = TestSuite()
 print("Hotkey state machine")
 await registerHotkeyTests(suite)
 
+print("\nDictation lifecycle")
+await registerDictationTests(suite)
+
 print("\nText formatting")
 await registerFormattingTests(suite)
 
-print("\nPermissions")
-print("  (macOS may show a microphone prompt — that is the point of the first test)")
-await registerPermissionsTests(suite)
+if !CommandLine.arguments.contains("--skip-permissions") {
+    print("\nPermissions")
+    print("  (macOS may show a microphone prompt — that is the point of the first test)")
+    await registerPermissionsTests(suite)
+}
 
 exit(suite.summarize())

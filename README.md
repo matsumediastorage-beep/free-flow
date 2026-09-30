@@ -9,11 +9,12 @@ running on your Mac's Neural Engine instead of someone else's server.
 - **Free and private.** Parakeet TDT v3 runs on-device via CoreML. Your voice
   never leaves the machine, and it works on a plane.
 - **Fast.** ~100–200ms from key release to pasted text.
-- **Actually clean.** An optional Claude Haiku pass strips "um" and "uh", adds
-  punctuation, and formats lists — with a hard 1.5s timeout that falls back to
-  the raw transcript, so it can never make you wait.
+- **Actually clean.** An AI pass fixes words the speech model misheard (using
+  your sentence, the text already before your cursor, and your dictionary),
+  strips "um" and "uh", applies "no wait, Thursday" corrections, and punctuates.
+  Claude Haiku when you add a key, Apple's on-device model for free otherwise.
 - **Remembers everything.** Every dictation is saved, searchable, and one click
-  from your clipboard.
+  from your clipboard, with every word the AI changed highlighted.
 
 ---
 
@@ -57,9 +58,10 @@ macOS requires a human to flip these switches — no app can grant them for you.
 About 600MB of Parakeet weights, once. The menu bar shows progress. After that
 it works offline forever.
 
-Every launch after that still loads those weights and runs one throwaway
-inference to make CoreML compile and specialise the graph — a few seconds during
-which the menu bar reads *Warming up*. Paying it at launch, on silence, is what
+Every launch after that loads the four CoreML models side by side (not one
+after another) and runs one throwaway inference so CoreML specialises the graph.
+It happens silently in the background; the hotkey works immediately, and a
+dictation made in those first seconds simply waits for the model. Paying it at launch, on silence, is what
 keeps your first real dictation as fast as every one after it. Turn on **Launch
 at login** and you never see it at all.
 
@@ -94,40 +96,49 @@ typing conflict.
 
 ---
 
-## AI cleanup (optional)
+## AI cleanup
 
-Without a key, Flow does conservative local cleanup (removes standalone "um" and
-"uh", capitalizes, adds a final period).
-
-With an Anthropic API key — Dashboard → Settings → AI cleanup — you get the real
-thing:
+Parakeet writes what words *sound* like, so it produces "Blaire" for Blair,
+"super base" for Supabase, and "there" for "their". The AI pass is what turns
+that into what you meant, the way Wispr Flow does:
 
 ```
-You say:  "um so like send me the uh the file tomorrow ok"
-Result:   "Send me the file tomorrow."
+You say:  "um so I wanted to to let you know that there meeting is on tuesday no wait thursday"
+Result:   "I wanted to let you know that their meeting is on Thursday."
 ```
 
-It uses Claude Haiku 4.5, costs roughly $0.10/month at typical use, and adds
-~250ms. The key is stored in your **Keychain**, never in a plaintext file.
+It uses three clues to fix a misheard word:
 
-The wait scales with what you said: about 1.2s for a phrase, up to 5s for a long
-paragraph. A flat budget meant long dictations — the ones cleanup helps most —
-were the ones that always timed out and fell back to raw text.
+1. **The sentence itself.** Which word makes sense here.
+2. **The text before your cursor**, read through Accessibility (Settings → *Use
+   the text around my cursor*). If the email above says "Hi Blair,", a later
+   "blare" is obviously Blair. Password fields are never read.
+3. **Your Dictionary** (sidebar → Dictionary). Names, clients and jargon get
+   mapped onto your spelling whenever something sounds like them.
 
-Settings shows whether the last cleanup actually worked, and a **Test cleanup
-now** button sends one throwaway request on demand. Failures are silent by
-design so they can never block a paste, which otherwise makes a bad key look
-identical to "nothing needed changing".
+Two styles: **Light** fixes mistakes and otherwise keeps your exact words;
+**Polished** (default) also smooths grammar and run-on sentences.
+
+| Engine | Cost | Quality | Needs |
+|---|---|---|---|
+| **Claude Haiku 4.5** | ~$0.10–1/month | Best at mishears and messy speech | Anthropic API key (Settings → AI cleanup) |
+| **Apple on-device** | Free | Good; catches obvious mishears | macOS 26 + Apple Intelligence on |
+| **Basic** | Free | Removes um/uh, adds a period | Nothing (automatic fallback) |
+
+The Claude connection is opened while you're still talking, so the network
+handshake never lands in the wait after you release the key. If Claude fails
+fast (offline, bad key) Flow uses Apple's model instead; if it times out it
+pastes basic cleanup rather than making you wait twice.
 
 Two guarantees baked into the prompt and the code:
 
-- **It only reformats.** It will never answer a question you dictate or act on
+- **It only edits.** It will never answer a question you dictate or act on
   an instruction inside the transcript.
 - **It can never block you.** Timeout, no network, bad response, refusal — any
-  failure pastes the raw transcript instead.
+  failure still pastes your text.
 
-Add names, clients, and jargon under Settings → Vocabulary so proper nouns come
-out spelled right.
+Settings shows whether the last cleanup actually worked, and **Test cleanup
+now** runs a deliberately messy sentence through it and shows the result.
 
 ---
 
@@ -194,6 +205,8 @@ any app, and those are incompatible with the App Sandbox.
 ## Development
 
 ```bash
+./scripts/update.sh          # build, test, install, relaunch, time the launch
+./scripts/update.sh check    # build + tests only
 swift build                  # compile
 swift run FlowTests          # run the test suite
 ./scripts/build-app.sh       # debug bundle in ./build

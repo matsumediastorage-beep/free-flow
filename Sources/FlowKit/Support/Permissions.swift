@@ -26,7 +26,7 @@ enum Permission: String, CaseIterable, Sendable {
         case .accessibility:
             return "Lets Flow paste text into whatever app you're using."
         case .inputMonitoring:
-            return "Lets Flow notice when you hold the Right Shift key."
+            return "Lets Flow notice when you hold your dictation key."
         case .microphone:
             return "Lets Flow hear you."
         }

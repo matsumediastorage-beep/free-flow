@@ -14,7 +14,57 @@ import Foundation
 ///
 /// The engine only runs while the trigger is held, so macOS's orange mic
 /// indicator is an honest signal of when Flow is listening.
-final class AudioRecorder: @unchecked Sendable {
+protocol AudioRecording: AnyObject {
+    @MainActor var onLevel: (@Sendable (Float) -> Void)? { get set }
+    @MainActor func prewarm() async throws
+    @MainActor func beginCapture() async throws
+    @MainActor func finish() async -> [Float]
+    @MainActor func cancel()
+}
+
+final class AudioRecorder: AudioRecording, @unchecked Sendable {
+    // All AVAudioEngine lifecycle work stays off the UI/event-tap thread.
+    // FIFO ordering also makes cancellation safe while a device is starting.
+    private let controlQueue = DispatchQueue(label: "com.matsumedia.flow.audio", qos: .userInitiated)
+
+    @MainActor
+    func prewarm() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            controlQueue.async {
+                do { try self.startEngine(); continuation.resume() }
+                catch { self.teardown(); continuation.resume(throwing: error) }
+            }
+        }
+    }
+
+    @MainActor
+    func beginCapture() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            controlQueue.async {
+                do {
+                    try self.startEngine()
+                    self.promoteCapture()
+                    continuation.resume()
+                } catch {
+                    self.teardown()
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func finish() async -> [Float] {
+        await withCheckedContinuation { continuation in
+            controlQueue.async { continuation.resume(returning: self.finishCapture()) }
+        }
+    }
+
+    @MainActor
+    func cancel() {
+        controlQueue.async { self.cancelCapture() }
+    }
+
 
     /// Smoothed 0...1 input level, for the overlay waveform. Called on the main queue.
     var onLevel: (@Sendable (Float) -> Void)?
@@ -42,27 +92,26 @@ final class AudioRecorder: @unchecked Sendable {
     private let maxSamples = Int(AudioRecorder.sampleRate * 300)  // 5 minutes
 
     /// True once the engine is live and audio is flowing into the pre-roll.
-    var isCapturingAudio: Bool { engine.isRunning }
+    private var tapInstalled = false
 
     // MARK: - Control
 
     /// Called when the trigger goes down. Starts the engine and begins filling
     /// the pre-roll buffer, but doesn't commit to a recording yet.
-    func prewarm() throws {
+    private func startEngine() throws {
+        guard !engine.isRunning else { return }
         lock.lock()
-        let alreadyRunning = engine.isRunning
         captured.removeAll(keepingCapacity: true)
         preRoll.removeAll(keepingCapacity: true)
         isCapturing = false
         lock.unlock()
 
-        guard !alreadyRunning else { return }
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
 
         // A zero sample rate means no usable input device is present.
-        guard inputFormat.sampleRate > 0 else {
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
             throw AudioError.noInputDevice
         }
 
@@ -70,18 +119,20 @@ final class AudioRecorder: @unchecked Sendable {
         converter = AVAudioConverter(from: inputFormat, to: targetFormat)
         lock.unlock()
 
-        input.removeTap(onBus: 0)
+        guard converter != nil else { throw AudioError.noInputDevice }
+        if tapInstalled { input.removeTap(onBus: 0) }
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) {
             [weak self] buffer, _ in
             self?.process(buffer)
         }
 
+        tapInstalled = true
         engine.prepare()
         try engine.start()
     }
 
     /// Promotes the pre-roll into a real recording.
-    func beginCapture() {
+    private func promoteCapture() {
         lock.lock()
         captured = preRoll  // keep the audio from during the hold guard
         preRoll.removeAll(keepingCapacity: true)
@@ -90,7 +141,7 @@ final class AudioRecorder: @unchecked Sendable {
     }
 
     /// Stops and returns everything captured, including the pre-roll.
-    func finish() -> [Float] {
+    private func finishCapture() -> [Float] {
         lock.lock()
         let samples = captured
         captured.removeAll(keepingCapacity: true)
@@ -103,7 +154,7 @@ final class AudioRecorder: @unchecked Sendable {
     }
 
     /// Aborts and throws the audio away.
-    func cancel() {
+    private func cancelCapture() {
         lock.lock()
         captured.removeAll(keepingCapacity: true)
         preRoll.removeAll(keepingCapacity: true)
@@ -114,8 +165,10 @@ final class AudioRecorder: @unchecked Sendable {
     }
 
     private func teardown() {
-        guard engine.isRunning else { return }
-        engine.inputNode.removeTap(onBus: 0)
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
         engine.stop()
         lock.lock()
         converter = nil
@@ -168,7 +221,7 @@ final class AudioRecorder: @unchecked Sendable {
         lock.lock()
         if isCapturing {
             if captured.count < maxSamples {
-                captured.append(contentsOf: samples)
+                captured.append(contentsOf: samples.prefix(maxSamples - captured.count))
             }
         } else {
             preRoll.append(contentsOf: samples)
@@ -178,11 +231,9 @@ final class AudioRecorder: @unchecked Sendable {
         }
         lock.unlock()
 
-        if let onLevel {
-            // Speech RMS is small; scale into a range that reads well visually.
-            let level = min(1, rms * 12)
-            DispatchQueue.main.async { onLevel(level) }
-        }
+        // Read the callback on the main queue along with all its mutations.
+        let level = min(1, rms * 12)
+        DispatchQueue.main.async { [weak self] in self?.onLevel?(level) }
     }
 }
 

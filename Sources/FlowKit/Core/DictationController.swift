@@ -7,8 +7,11 @@ enum DictationState: Equatable, Sendable {
     case idle
     /// First-run model download, then the CoreML warm-up.
     case preparing(PreparePhase)
+    case starting
     case listening
     case transcribing
+    /// The AI pass is fixing and polishing the transcript.
+    case polishing
     case finished(String)
     case failed(String)
 }
@@ -28,6 +31,7 @@ final class DictationController {
     /// 0...1 mic level, drives the overlay waveform.
     private(set) var level: Float = 0
     private(set) var isHandsFree = false
+    private(set) var isEngineReady = false
 
     /// Lets the overlay show and hide itself without polling.
     var onStateChange: ((DictationState) -> Void)?
@@ -38,7 +42,7 @@ final class DictationController {
     private let settings: Settings
     private let history: HistoryStore
     private let engine: any TranscriptionEngine
-    private let recorder = AudioRecorder()
+    private let recorder: any AudioRecording
     private let monitor = HotkeyMonitor()
     private let logger = Logger(subsystem: "com.matsumedia.flow", category: "dictation")
 
@@ -54,18 +58,37 @@ final class DictationController {
 
     /// The in-flight model load. A dictation that lands before the engine is
     /// ready awaits this rather than throwing the recording away.
-    private var prepareTask: Task<Void, Error>?
+    private var prepareTask: Task<Void, Never>?
+    private var preparePhase: PreparePhase?
+    private var startTask: Task<Bool, Never>?
+    private var processTask: Task<Void, Never>?
+    private var feedbackTask: Task<Void, Never>?
+    private var session = UUID()
+    private var recordingActive = false
+    private var processing = false
+    private let insertText: @MainActor (String) -> Void
+    private let readContext: @Sendable () async -> String?
+
+    /// Text before the cursor, read once per dictation as recording starts —
+    /// while the target field is certainly still focused.
+    private var contextTask: Task<String?, Never>?
 
     init(
         settings: Settings,
         history: HistoryStore,
         engine: any TranscriptionEngine,
-        formatter: any TextFormatter = LocalFormatter()
+        formatter: any TextFormatter = LocalFormatter(),
+        recorder: any AudioRecording = AudioRecorder(),
+        insertText: @escaping @MainActor (String) -> Void = TextInserter.insert,
+        readContext: @escaping @Sendable () async -> String? = { await FocusedTextContext.read() }
     ) {
         self.settings = settings
         self.history = history
         self.engine = engine
         self.formatter = formatter
+        self.recorder = recorder
+        self.insertText = insertText
+        self.readContext = readContext
 
         recorder.onLevel = { [weak self] value in
             MainActor.assumeIsolated { self?.level = value }
@@ -95,21 +118,38 @@ final class DictationController {
 
     func stop() {
         monitor.stop()
+        session = UUID()
+        prewarmTask?.cancel()
+        startTask?.cancel()
+        processTask?.cancel()
+        feedbackTask?.cancel()
+        contextTask?.cancel()
+        contextTask = nil
+        recordingActive = false
+        processing = false
+        isHandsFree = false
         recorder.cancel()
+        state = .idle
     }
 
     /// Downloads (first run) and loads the speech models.
     func prepareEngine() {
+        guard prepareTask == nil else { return }
+        preparePhase = .loading(0)
+        state = .preparing(.loading(0))
         prepareTask = Task { [weak self] in
             guard let self else { return }
             do {
-                self.state = .preparing(.loading(0))
                 try await self.engine.prepare { phase in
                     Task { @MainActor [weak self] in
-                        self?.state = .preparing(phase)
+                        guard let self, self.preparePhase != nil else { return }
+                        self.preparePhase = phase
+                        if case .preparing = self.state { self.state = .preparing(phase) }
                     }
                 }
-                self.state = .idle
+                self.preparePhase = nil
+                self.isEngineReady = true
+                if case .preparing = self.state { self.state = .idle }
 
                 let load = await self.engine.loadSeconds
                 let warmup = await self.engine.warmupSeconds
@@ -119,7 +159,12 @@ final class DictationController {
                 self.onEngineReady?(load, warmup)
             } catch {
                 self.logger.error("Model load failed: \(error.localizedDescription)")
-                self.state = .failed("Couldn't load the speech model.")
+                self.preparePhase = nil
+                self.prepareTask = nil  // A later attempt may retry.
+                if case .preparing = self.state {
+                    self.state = .failed("Couldn't load the speech model.")
+                    self.clearFailureSoon()
+                }
             }
         }
     }
@@ -132,46 +177,97 @@ final class DictationController {
 
     // MARK: - Hotkey events
 
-    private func handle(_ event: HotkeyEvent) {
+    func handle(_ event: HotkeyEvent) {
         switch event {
         case .armed:
+            // Do not let a second gesture overwrite audio or paste out of order.
+            guard !processing else {
+                monitor.machine.reset()
+                isHandsFree = false
+                return
+            }
+            feedbackTask?.cancel()
+            session = UUID()
+            recordingActive = true
             targetApp = NSWorkspace.shared.frontmostApplication
             schedulePrewarm()
 
         case .startedRecording:
+            guard recordingActive, !processing else { return }
             prewarmTask?.cancel()
-            // Normally the debounced pre-warm already opened the mic. If it
-            // hasn't (slow audio device, engine still starting), open it now
-            // rather than recording silence.
-            if !recorder.isCapturingAudio {
+            state = .starting
+            beginGatheringContext()
+            let token = session
+            let startedAt = Date()
+            startTask = Task { [weak self] in
+                guard let self, !Task.isCancelled else { return false }
                 do {
-                    try recorder.prewarm()
+                    try await self.recorder.beginCapture()
+                    guard !Task.isCancelled, self.session == token else { return false }
+                    self.logger.info("Microphone ready in \(Date().timeIntervalSince(startedAt), format: .fixed(precision: 3))s")
+                    self.level = 0
+                    // A release can arrive while the audio device is opening.
+                    if !self.processing {
+                        self.state = .listening
+                        self.play(.start)
+                    }
+                    return true
                 } catch {
-                    logger.error("Mic start failed: \(error.localizedDescription)")
-                    state = .failed(error.localizedDescription)
-                    return
+                    guard !Task.isCancelled, self.session == token else { return false }
+                    self.recordingActive = false
+                    self.monitor.machine.reset()
+                    self.isHandsFree = false
+                    self.recorder.cancel()
+                    self.state = .failed(error.localizedDescription)
+                    self.clearFailureSoon()
+                    return false
                 }
             }
-            recorder.beginCapture()
-            level = 0
-            state = .listening
-            play(.start)
 
         case .stoppedRecording:
-            let samples = recorder.finish()
+            guard recordingActive, !processing else { return }
+            prewarmTask?.cancel()
+            recordingActive = false
+            processing = true
             state = .transcribing
             play(.stop)
-            process(samples)
+            process()
 
         case .cancelled:
+            guard recordingActive, !processing else { return }
+            session = UUID()
+            recordingActive = false
             prewarmTask?.cancel()
+            startTask?.cancel()
+            contextTask?.cancel()
+            contextTask = nil
             recorder.cancel()
             level = 0
-            if case .listening = state { state = .idle }
+            restoreIdleState()
 
         case .handsFreeChanged(let on):
             isHandsFree = on
         }
+    }
+
+    /// Starts the two things that can happen while you talk instead of after:
+    /// reading the text around the cursor, and opening the connection the AI
+    /// pass will use. Both would otherwise add to the wait after release.
+    private func beginGatheringContext() {
+        let formatter = self.formatter
+        if formatter.usesAI {
+            Task.detached(priority: .utility) { await formatter.prepare() }
+        }
+        if formatter.usesAI, settings.useScreenContext {
+            let read = readContext
+            contextTask = Task.detached(priority: .userInitiated) { await read() }
+        } else {
+            contextTask = nil
+        }
+    }
+
+    private func restoreIdleState() {
+        state = preparePhase.map { .preparing($0) } ?? .idle
     }
 
     // MARK: - Mic pre-warm
@@ -188,48 +284,77 @@ final class DictationController {
     /// recording actually begins.
     private func schedulePrewarm() {
         prewarmTask?.cancel()
+        let token = session
         prewarmTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, let self, self.session == token else { return }
             do {
-                try self.recorder.prewarm()
+                try await self.recorder.prewarm()
             } catch {
                 self.logger.error("Mic prewarm failed: \(error.localizedDescription)")
-                self.state = .failed(error.localizedDescription)
+                // A deliberate hold retries and reports an error if needed.
             }
         }
     }
 
     // MARK: - The pipeline
 
-    private func process(_ samples: [Float]) {
+    private func process() {
         let appName = targetApp?.localizedName
         let vocabulary = settings.vocabulary
         let formatter = self.formatter
-        let duration = Double(samples.count) / AudioRecorder.sampleRate
+        let style = settings.cleanupStyle
+        let token = session
+        let startup = startTask
+        let pendingContext = contextTask
+        contextTask = nil
 
-        Task { [weak self] in
+        processTask = Task { [weak self] in
             guard let self else { return }
+            defer { if self.session == token { self.processing = false } }
+            guard await startup?.value == true,
+                !Task.isCancelled, self.session == token else { return }
+            let samples = await self.recorder.finish()
+            let duration = Double(samples.count) / AudioRecorder.sampleRate
+            guard !Task.isCancelled, self.session == token else { return }
             do {
                 // Speaking right after launch shouldn't cost you the recording.
                 // The load is normally sub-second, so waiting it out beats
                 // failing — the audio is already captured either way.
                 if await !self.engine.isReady {
                     self.logger.info("Dictation arrived before the model; waiting for load")
-                    try? await self.prepareTask?.value
+                    await self.prepareTask?.value
+                    try Task.checkCancellation()
                 }
 
                 let transcript = try await self.engine.transcribe(samples)
+                try Task.checkCancellation()
 
                 guard !transcript.text.isEmpty else {
                     self.state = .idle
                     return
                 }
 
-                let context = FormattingContext(appName: appName, vocabulary: vocabulary)
+                let preceding = await pendingContext?.value
+                try Task.checkCancellation()
+
+                if formatter.usesAI { self.state = .polishing }
+                let context = FormattingContext(
+                    appName: appName,
+                    vocabulary: vocabulary,
+                    precedingText: preceding,
+                    style: style
+                )
                 let finalText = await formatter.format(transcript.text, context: context)
 
-                TextInserter.insert(finalText)
+                try Task.checkCancellation()
+                guard self.session == token else { return }
+                // "Hello" then dictating "world" should read "Hello world",
+                // not "Helloworld".
+                let pasted =
+                    FocusedTextContext.needsLeadingSpace(before: preceding, inserting: finalText)
+                    ? " " + finalText : finalText
+                self.insertText(pasted)
 
                 self.history.add(
                     DictationEntry(
@@ -244,10 +369,14 @@ final class DictationController {
                     "Transcribed \(transcript.text.count) chars in \(transcript.processingTime, format: .fixed(precision: 3))s"
                 )
 
-                // Let the overlay show its confirmation, then go quiet.
-                try? await Task.sleep(for: .milliseconds(900))
-                if case .finished = self.state { self.state = .idle }
+                self.feedbackTask = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(900))
+                    guard !Task.isCancelled, let self, self.session == token else { return }
+                    self.restoreIdleState()
+                }
 
+            } catch is CancellationError {
+                return
             } catch let error as TranscriptionError {
                 // "Too short" is the common accidental-trigger case; not worth
                 // shouting about.
@@ -286,10 +415,12 @@ final class DictationController {
     }
 
     private func clearFailureSoon() {
-        Task { [weak self] in
+        feedbackTask?.cancel()
+        let token = session
+        feedbackTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
-            guard let self, case .failed = self.state else { return }
-            self.state = .idle
+            guard !Task.isCancelled, let self, self.session == token, case .failed = self.state else { return }
+            self.restoreIdleState()
         }
     }
 }

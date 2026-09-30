@@ -13,7 +13,7 @@ struct SettingsView: View {
     let onSettingsChanged: () -> Void
 
     @State private var apiKey: String = KeychainStore.apiKey ?? ""
-    @State private var newVocabularyTerm = ""
+    @State private var lastTestResult: String?
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var cleanupStatus = CleanupStatus.read()
     @State private var isTesting = false
@@ -22,10 +22,10 @@ struct SettingsView: View {
         Form {
             dictationKeySection
             cleanupSection
-            vocabularySection
             generalSection
         }
         .formStyle(.grouped)
+        .tint(Theme.violet)
     }
 
     // MARK: - Dictation key
@@ -94,13 +94,39 @@ struct SettingsView: View {
             }
 
             if settings.cleanupEngine != .off {
+                Picker("Style", selection: $settings.cleanupStyle) {
+                    ForEach(CleanupStyle.allCases, id: \.self) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(settings.cleanupStyle.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle(isOn: $settings.useScreenContext) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use the text around my cursor")
+                        Text(
+                            "Reads what's already typed before the cursor so misheard names get fixed from context. Password fields are never read."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            if settings.cleanupEngine != .off {
                 cleanupStatusRow
             }
         } header: {
             Text("AI cleanup")
         } footer: {
             Text(
-                "Cleanup removes filler words, adds punctuation, applies spoken corrections, and formats lists. It only ever reformats — it will never answer a question you dictate. If it's slow, offline or unavailable, Flow pastes the raw transcript instead, so it can never block your text."
+                "Cleanup fixes words the speech model misheard, removes fillers, adds punctuation and applies spoken corrections. It only ever edits what you said; it will never answer a question you dictate. If Claude is slow or offline, Free Flow falls back to Apple's model or the raw transcript, so it can never block your text."
             )
         }
     }
@@ -197,38 +223,23 @@ struct SettingsView: View {
             .animation(.snappy(duration: 0.25), value: status.succeeded)
         }
 
+        if let lastTestResult {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("You said: \"\(Self.testPhrase)\"")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(lastTestResult)
+                    .font(.callout.weight(.medium))
+                    .textSelection(.enabled)
+            }
+        }
+
         HStack {
             Button(isTesting ? "Testing…" : "Test cleanup now") { runCleanupTest() }
                 .disabled(isTesting || settings.cleanupEngine == .off)
             if isTesting {
                 ProgressView().controlSize(.small).scaleEffect(0.7)
             }
-        }
-    }
-
-    // MARK: - Vocabulary
-
-    private var vocabularySection: some View {
-        Section {
-            HStack {
-                TextField("Add a word or name", text: $newVocabularyTerm)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(addTerm)
-                Button("Add", action: addTerm)
-                    .disabled(newVocabularyTerm.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-
-            if !settings.vocabulary.isEmpty {
-                WrappingChips(items: settings.vocabulary) { term in
-                    settings.vocabulary.removeAll { $0 == term }
-                }
-            }
-        } header: {
-            Text("Vocabulary")
-        } footer: {
-            Text(
-                "Names, clients and jargon Flow should spell correctly — useful for anything the speech model is likely to garble."
-            )
         }
     }
 
@@ -279,26 +290,28 @@ struct SettingsView: View {
             formatter = ClaudeFormatter(apiKey: key, fallback: PassthroughFormatter())
         }
         isTesting = true
+        let context = FormattingContext(
+            appName: nil,
+            vocabulary: settings.vocabulary,
+            precedingText: nil,
+            style: settings.cleanupStyle
+        )
         Task {
-            _ = await formatter.format(
-                "um so like can you send me the uh the file tomorrow ok",
-                context: FormattingContext(appName: nil, vocabulary: settings.vocabulary)
-            )
+            let result = await formatter.format(Self.testPhrase, context: context)
+            lastTestResult = result
             cleanupStatus = CleanupStatus.read()
             isTesting = false
         }
     }
 
+    /// A realistic messy dictation: fillers, a false start, a self-correction,
+    /// and a homophone the model has to fix from context.
+    static let testPhrase =
+        "um so I wanted to to let you know that there meeting is on tuesday no wait thursday at like three thirty"
+
     private func saveKey() {
         KeychainStore.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         onSettingsChanged()
-    }
-
-    private func addTerm() {
-        let term = newVocabularyTerm.trimmingCharacters(in: .whitespaces)
-        guard !term.isEmpty, !settings.vocabulary.contains(term) else { return }
-        settings.vocabulary.append(term)
-        newVocabularyTerm = ""
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {
@@ -354,76 +367,6 @@ private struct Callout<Accessory: View>: View {
                 accessory()
             }
             Spacer(minLength: 0)
-        }
-    }
-}
-
-/// Simple flow layout for the vocabulary chips.
-private struct WrappingChips: View {
-    let items: [String]
-    let onRemove: (String) -> Void
-
-    var body: some View {
-        FlowLayout(spacing: 6) {
-            ForEach(items, id: \.self) { item in
-                HStack(spacing: 4) {
-                    Text(item).font(.system(size: 11))
-                    Button {
-                        onRemove(item)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(.quaternary))
-            }
-        }
-    }
-}
-
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth, x > 0 {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-        return CGSize(width: maxWidth, height: y + rowHeight)
-    }
-
-    func placeSubviews(
-        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
-    ) {
-        var x = bounds.minX
-        var y = bounds.minY
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > bounds.maxX, x > bounds.minX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
         }
     }
 }

@@ -1,32 +1,37 @@
 import SwiftUI
 
-/// The dashboard shell.
+/// The dashboard shell: a sidebar of four places, and the one you picked.
 ///
-/// A sidebar rather than a tab bar: `TabView` is the iPhone idiom, and on macOS
-/// a source list is what every first-party app of this shape uses (Mail, Notes,
-/// System Settings). It also gives the sidebar its own vibrancy material, which
-/// is most of why a Mac window looks like a Mac window.
+/// A sidebar rather than tabs, because that's the Mac idiom for an app of this
+/// shape (Mail, Notes, System Settings), and it gives the window the native
+/// vibrancy that makes it feel like it belongs on the Mac.
 struct DashboardView: View {
     @Bindable var history: HistoryStore
     @Bindable var settings: Settings
+    let dictation: DictationController
     let onSettingsChanged: () -> Void
 
-    @State private var selection: Panel = .history
+    @State private var selection: Panel = .home
     @State private var missingPermissions = Permissions.missing
+    @State private var openSetup = false
 
     enum Panel: Hashable, CaseIterable {
-        case history, settings
+        case home, history, dictionary, settings
 
         var title: String {
             switch self {
+            case .home: return "Home"
             case .history: return "History"
+            case .dictionary: return "Dictionary"
             case .settings: return "Settings"
             }
         }
 
         var symbol: String {
             switch self {
-            case .history: return "waveform"
+            case .home: return "house"
+            case .history: return "clock.arrow.circlepath"
+            case .dictionary: return "character.book.closed"
             case .settings: return "gearshape"
             }
         }
@@ -35,20 +40,25 @@ struct DashboardView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 168, ideal: 188, max: 240)
+                .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
         } detail: {
             detail
-                .navigationSplitViewColumnWidth(min: 440, ideal: 520)
+                .navigationSplitViewColumnWidth(min: 520, ideal: 640)
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 700, minHeight: 500)
+        .tint(Theme.violet)
+        .frame(minWidth: 780, minHeight: 560)
         .onAppear(perform: refresh)
-        // Coming back from System Settings is exactly when this changes.
         .onReceive(
             NotificationCenter.default.publisher(
                 for: NSApplication.didBecomeActiveNotification)
         ) { _ in
             refresh()
+        }
+        .sheet(isPresented: $openSetup) {
+            SetupSheet(missing: missingPermissions, onRefresh: refresh) {
+                openSetup = false
+            }
         }
     }
 
@@ -70,11 +80,32 @@ struct DashboardView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .top) { sidebarHeader }
         .safeAreaInset(edge: .bottom) { sidebarFooter }
     }
 
-    /// Setup isn't a peer of History and Settings — it's a problem, and it
-    /// should look like one until it goes away.
+    private var sidebarHeader: some View {
+        HStack(spacing: 10) {
+            BrandMark(size: 30)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Free Flow")
+                    .font(Theme.display(15))
+                Text(appVersion)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+    }
+
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        return version.map { "Version \($0)" } ?? "Dictation"
+    }
+
     private var setupRow: some View {
         Button {
             openSetup = true
@@ -93,29 +124,27 @@ struct DashboardView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .sheet(isPresented: $openSetup) {
-            SetupSheet(missing: missingPermissions, onRefresh: refresh) {
-                openSetup = false
-            }
-        }
     }
 
-    @State private var openSetup = false
-
-    /// A quiet, always-visible reminder of the one thing you need to remember.
+    /// Always-visible status: is it ready, and what do I press.
     private var sidebarFooter: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             Divider()
-            HStack(spacing: 5) {
-                Image(systemName: "hand.point.up.left")
-                    .font(.system(size: 10))
-                Text("Hold \(settings.hotkey.displayName)")
-                    .font(.system(size: 11, weight: .medium))
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(dictation.isEngineReady ? Color.green : Color.orange)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: (dictation.isEngineReady ? Color.green : Color.orange).opacity(0.6), radius: 3)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(dictation.isEngineReady ? "Ready" : "Getting ready…")
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Text("Hold \(settings.hotkey.displayName) to talk")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 14)
-            .padding(.top, 6)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
     }
 
@@ -124,9 +153,21 @@ struct DashboardView: View {
     @ViewBuilder
     private var detail: some View {
         switch selection {
+        case .home:
+            HomeView(
+                history: history,
+                settings: settings,
+                dictation: dictation,
+                onOpenSettings: { selection = .settings },
+                onOpenHistory: { selection = .history }
+            )
+            .navigationTitle("")
         case .history:
             HistoryListView(history: history)
                 .navigationTitle("History")
+        case .dictionary:
+            DictionaryView(settings: settings)
+                .navigationTitle("Dictionary")
         case .settings:
             SettingsView(
                 settings: settings,
@@ -143,11 +184,10 @@ struct DashboardView: View {
     }
 }
 
+// MARK: - Setup
+
 /// Shown until all three TCC permissions are granted. macOS requires a human to
 /// flip these switches — the app can only ask and link.
-///
-/// A sheet rather than a tab, because it's a task with a finish line: it appears
-/// when there's something to do and leaves when there isn't.
 struct SetupSheet: View {
     let missing: [Permission]
     let onRefresh: () -> Void
@@ -155,25 +195,23 @@ struct SetupSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 7) {
-                Image(systemName: "lock.shield")
-                    .font(.system(size: 26, weight: .light))
-                    .foregroundStyle(.tint)
-                    .padding(.bottom, 3)
+            VStack(alignment: .leading, spacing: 8) {
+                BrandMark(size: 40)
+                    .padding(.bottom, 6)
 
-                Text("Flow needs a few permissions")
-                    .font(.system(size: 17, weight: .semibold))
+                Text("Two minutes of setup")
+                    .font(Theme.display(20))
 
                 Text(
-                    "macOS requires you to grant these yourself. Flow can open the right page, but you have to flip the switch."
+                    "macOS makes you grant these yourself. Free Flow opens the right page; you flip the switch."
                 )
-                .font(.system(size: 12))
+                .font(.system(size: 12.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 26)
-            .padding(.bottom, 18)
+            .padding(.horizontal, 26)
+            .padding(.top, 28)
+            .padding(.bottom, 20)
 
             VStack(spacing: 8) {
                 ForEach(Permission.allCases, id: \.self) { permission in
@@ -183,13 +221,13 @@ struct SetupSheet: View {
                     )
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 26)
 
             Spacer(minLength: 20)
 
             Divider()
             HStack {
-                Text("You may need to quit and reopen Flow after granting.")
+                Text("You may need to quit and reopen Free Flow after granting.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                 Spacer()
@@ -200,7 +238,8 @@ struct SetupSheet: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 480, height: 440)
+        .frame(width: 500, height: 470)
+        .tint(Theme.violet)
     }
 }
 
@@ -210,19 +249,17 @@ private struct PermissionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // A symbol that swaps by *morphing* reads as the same row changing
-            // state, which is what actually happened.
             Image(systemName: granted ? "checkmark.circle.fill" : "circle.dashed")
-                .font(.system(size: 17))
-                .foregroundStyle(granted ? .green : .secondary)
+                .font(.system(size: 18))
+                .foregroundStyle(granted ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(.secondary))
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: 20)
+                .frame(width: 22)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(permission.title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
                 Text(permission.why)
-                    .font(.system(size: 11))
+                    .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -235,12 +272,13 @@ private struct PermissionRow: View {
                     Permissions.openSettings(for: permission)
                 }
                 .controlSize(.small)
+                .buttonStyle(.borderedProminent)
             }
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .background {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(granted ? AnyShapeStyle(.quinary) : AnyShapeStyle(.quaternary.opacity(0.5)))
         }
         .animation(.snappy(duration: 0.25), value: granted)

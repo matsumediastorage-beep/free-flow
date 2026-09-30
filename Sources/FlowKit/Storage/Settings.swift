@@ -28,6 +28,9 @@ final class Settings {
         } else {
             self.cleanupEngine = .onDevice
         }
+        self.cleanupStyle =
+            CleanupStyle(rawValue: defaults.string(forKey: Keys.cleanupStyle) ?? "") ?? .polished
+        self.useScreenContext = defaults.object(forKey: Keys.useScreenContext) as? Bool ?? true
         self.vocabulary = defaults.stringArray(forKey: Keys.vocabulary) ?? []
         self.retentionDays = defaults.object(forKey: Keys.retentionDays) as? Int ?? 0
         self.playSounds = defaults.object(forKey: Keys.playSounds) as? Bool ?? true
@@ -53,6 +56,17 @@ final class Settings {
         didSet { defaults.set(cleanupEngine.rawValue, forKey: Keys.cleanupEngine) }
     }
 
+    var cleanupStyle: CleanupStyle {
+        didSet { defaults.set(cleanupStyle.rawValue, forKey: Keys.cleanupStyle) }
+    }
+
+    /// Lets the AI pass read the text just before your cursor, which is the
+    /// best clue it has for fixing a misheard name. Password fields are never
+    /// read either way.
+    var useScreenContext: Bool {
+        didSet { defaults.set(useScreenContext, forKey: Keys.useScreenContext) }
+    }
+
     /// Names and jargon the AI pass should spell correctly.
     var vocabulary: [String] {
         didSet { defaults.set(vocabulary, forKey: Keys.vocabulary) }
@@ -73,6 +87,8 @@ final class Settings {
         static let aiCleanup = "aiCleanupEnabled"  // legacy, read once for migration
         static let cleanupEngine = "cleanupEngine"
         static let vocabulary = "vocabulary"
+        static let cleanupStyle = "cleanupStyle"
+        static let useScreenContext = "useScreenContext"
         static let retentionDays = "retentionDays"
         static let playSounds = "playSounds"
         static let showInDock = "showInDock"

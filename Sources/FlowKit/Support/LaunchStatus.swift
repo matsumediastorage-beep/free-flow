@@ -26,6 +26,12 @@ struct LaunchStatus: Codable {
     /// warm-up inference. Together these are the whole "why isn't it ready yet".
     let modelLoadSeconds: Double
     let modelWarmupSeconds: Double
+    /// Seconds from launch until dictation was fully ready.
+    let readySeconds: Double
+    /// Which cleanup pass is selected, and whether Apple's model is usable —
+    /// the two things that decide how good cleanup actually is.
+    let cleanupEngine: String
+    let appleModelAvailable: Bool
     /// Which copy of the app is reporting. If two builds exist, this is how you
     /// tell whether the one you granted is the one that's running.
     let appPath: String

@@ -9,15 +9,18 @@ final class DashboardWindowController {
     private var window: NSWindow?
     private let history: HistoryStore
     private let settings: Settings
+    private let dictation: DictationController
     private let onSettingsChanged: () -> Void
 
     init(
         history: HistoryStore,
         settings: Settings,
+        dictation: DictationController,
         onSettingsChanged: @escaping () -> Void
     ) {
         self.history = history
         self.settings = settings
+        self.dictation = dictation
         self.onSettingsChanged = onSettingsChanged
     }
 
@@ -26,11 +29,12 @@ final class DashboardWindowController {
             let view = DashboardView(
                 history: history,
                 settings: settings,
+                dictation: dictation,
                 onSettingsChanged: onSettingsChanged
             )
 
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 780, height: 560),
+                contentRect: NSRect(x: 0, y: 0, width: 960, height: 680),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
@@ -50,7 +54,7 @@ final class DashboardWindowController {
             window.toolbarStyle = .unified
 
             window.contentView = NSHostingView(rootView: view)
-            window.setFrameAutosaveName("FlowDashboard")
+            window.setFrameAutosaveName("FlowDashboard2")
             window.center()
             window.isReleasedWhenClosed = false
             self.window = window

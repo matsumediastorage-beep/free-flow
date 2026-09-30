@@ -6,11 +6,44 @@ struct FormattingContext: Sendable {
     let appName: String?
     /// Names and jargon that should be spelled correctly.
     let vocabulary: [String]
+    /// Whatever was already typed before the cursor, read through
+    /// Accessibility. It's the single best clue for fixing a misheard word:
+    /// "send it to Blaire" is obviously "Blair" when the email above starts
+    /// "Hi Blair,". Nil when the field can't be read, or when it's a password.
+    let precedingText: String?
+    /// How far the AI pass may go beyond fixing mistakes.
+    let style: CleanupStyle
+
+    init(
+        appName: String?,
+        vocabulary: [String],
+        precedingText: String? = nil,
+        style: CleanupStyle = .polished
+    ) {
+        self.appName = appName
+        self.vocabulary = vocabulary
+        self.precedingText = precedingText
+        self.style = style
+    }
 }
 
 /// Turns a raw transcript into what actually gets pasted.
 protocol TextFormatter: Sendable {
     func format(_ raw: String, context: FormattingContext) async -> String
+
+    /// True when formatting involves a model and can take a noticeable moment,
+    /// so the overlay should say so instead of looking stuck.
+    var usesAI: Bool { get }
+
+    /// Called the moment recording starts, while the user is still talking.
+    /// A formatter that talks to a server opens its connection here, so the
+    /// TLS handshake is already done by the time there's text to send.
+    func prepare() async
+}
+
+extension TextFormatter {
+    var usesAI: Bool { false }
+    func prepare() async {}
 }
 
 /// Rule-based cleanup with no network call. Used when AI cleanup is disabled or

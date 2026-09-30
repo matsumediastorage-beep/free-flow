@@ -2,85 +2,85 @@ import SwiftUI
 
 /// Contents of the floating pill. Mirrors `DictationState`.
 ///
-/// Design notes, since this is the one piece of Flow you see every single time:
+/// Design notes, since this is the one piece of Flow you see every time:
 ///
-///  * **One shape, not five screens.** Every state renders into the same
-///    capsule, and the capsule resizes with a spring rather than cutting. The
-///    pill should read as a single object changing its mind, not as a series of
-///    different popups.
-///  * **Motion carries meaning.** The icon uses `contentTransition(.symbolEffect)`
-///    so listening → done is a symbol *morph*; the text cross-fades. Nothing
-///    moves decoratively.
-///  * **Accessibility is not an afterthought.** Reduce Motion drops the springs
-///    and the pulse; Reduce Transparency swaps the material for a solid fill.
-///    Both are read from the environment, so they take effect live.
+///  * **Small and dark, always.** It's the icon come to life: a near-black
+///    glass capsule with violet light in it. Dark reads over any window, light
+///    or dark mode, and small means it never covers what you're writing.
+///  * **One object changing its mind.** Every state renders into the same
+///    capsule and it resizes with a spring, so listening → polishing → done
+///    reads as one thing progressing, not a series of popups.
+///  * **The waveform is the status.** While you talk the bars follow your voice;
+///    while Flow works they ripple on their own. You can tell what's happening
+///    without reading a word.
+///  * **Accessibility.** Reduce Motion drops the ripples and springs; Reduce
+///    Transparency makes the capsule solid.
 struct OverlayView: View {
     @Bindable var controller: DictationController
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 10) {
             content
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 13)
-        .frame(minWidth: 180)
+        .padding(.leading, 14)
+        .padding(.trailing, 16)
+        .padding(.vertical, 10)
+        .frame(minHeight: 40)
         .background(pill)
+        .environment(\.colorScheme, .dark)
         .animation(transition, value: controller.state)
     }
 
-    // MARK: - The pill itself
+    // MARK: - The pill
 
-    /// Layered the way macOS layers a real floating control: a material base, a
-    /// hairline that catches "light" from above, an accent wash that only
-    /// appears while recording, and a shadow that grounds it.
     private var pill: some View {
         ZStack {
             Capsule(style: .continuous)
                 .fill(.ultraThinMaterial)
                 .opacity(reduceTransparency ? 0 : 1)
+            Capsule(style: .continuous)
+                .fill(Theme.pillBase.opacity(reduceTransparency ? 1 : 0.82))
+
+            // A violet wash from below while Flow is doing something, strongest
+            // while it's listening.
+            Capsule(style: .continuous)
+                .fill(
+                    RadialGradient(
+                        colors: [Theme.violet.opacity(0.45), .clear],
+                        center: .bottom, startRadius: 2, endRadius: 90)
+                )
+                .opacity(glowAmount)
 
             Capsule(style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .opacity(reduceTransparency ? 1 : 0)
-
-            // Recording tint. Subtle enough to read as a state, not a warning.
-            Capsule(style: .continuous)
-                .fill(.tint)
-                .opacity(isRecording ? (colorScheme == .dark ? 0.16 : 0.10) : 0)
-
-            Capsule(style: .continuous)
-                .strokeBorder(borderGradient, lineWidth: 0.75)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Theme.orchid.opacity(0.55 * max(glowAmount, 0.35)),
+                            .white.opacity(0.08),
+                        ],
+                        startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1
+                )
         }
         .compositingGroup()
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0.45 : 0.18), radius: 18, y: 7)
-        .shadow(color: .black.opacity(0.10), radius: 2, y: 1)
+        .shadow(color: Theme.violet.opacity(0.35 * glowAmount), radius: 16)
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
     }
 
-    /// A top-lit hairline — brighter at the top edge, fading toward the bottom.
-    /// This is what stops a translucent panel from looking flat.
-    private var borderGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                .white.opacity(colorScheme == .dark ? 0.28 : 0.65),
-                .white.opacity(colorScheme == .dark ? 0.06 : 0.22),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+    private var glowAmount: Double {
+        switch controller.state {
+        case .listening: return 1
+        case .starting, .transcribing, .polishing: return 0.6
+        case .finished: return 0.35
+        default: return 0
+        }
     }
 
-    private var isRecording: Bool {
-        if case .listening = controller.state { return true }
-        return false
-    }
-
-    /// Springs everywhere except when the user has asked for less motion.
     private var transition: Animation {
-        reduceMotion ? .easeOut(duration: 0.12) : .snappy(duration: 0.28, extraBounce: 0.08)
+        reduceMotion ? .easeOut(duration: 0.12) : .snappy(duration: 0.28, extraBounce: 0.06)
     }
 
     // MARK: - Per-state content
@@ -89,104 +89,159 @@ struct OverlayView: View {
     private var content: some View {
         switch controller.state {
         case .listening:
-            WaveformView(level: controller.level, reduceMotion: reduceMotion)
-            label(controller.isHandsFree ? "Hands-free" : "Listening")
+            LiveWaveform(level: controller.level, reduceMotion: reduceMotion)
+            if controller.isHandsFree {
+                caption("Hands-free")
+            }
+
+        case .starting:
+            WorkingWaveform(reduceMotion: reduceMotion, quiet: true)
 
         case .transcribing:
-            ProgressView()
-                .controlSize(.small)
-                .scaleEffect(0.75)
-                .frame(width: 16)
-            label("Transcribing…")
+            WorkingWaveform(reduceMotion: reduceMotion)
+            caption("Transcribing")
+
+        case .polishing:
+            WorkingWaveform(reduceMotion: reduceMotion)
+            HStack(spacing: 5) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.brandGradient)
+                    .symbolEffect(.pulse, isActive: !reduceMotion)
+                caption("Polishing")
+            }
 
         case .finished(let text):
-            icon("checkmark.circle.fill", tint: .green)
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.brandGradient)
+                .contentTransition(.symbolEffect(.replace))
             Text(text)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: 300, alignment: .leading)
+                .frame(maxWidth: 320, alignment: .leading)
                 .transition(.opacity)
 
         case .failed(let message):
-            icon("exclamationmark.triangle.fill", tint: .orange)
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.orange)
             Text(message)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(2)
                 .frame(maxWidth: 300, alignment: .leading)
 
         case .preparing(.loading(let fraction)):
             ProgressView(value: fraction)
-                .controlSize(.small)
-                .frame(width: 88)
-            label("Loading speech model… \(Int(fraction * 100))%")
+                .progressViewStyle(.linear)
+                .tint(Theme.violet)
+                .frame(width: 90)
+            caption("Downloading speech model · \(Int(fraction * 100))%")
 
         case .preparing(.warming):
-            // Indeterminate on purpose. CoreML reports no progress here, and a
-            // bar pinned at 100% is exactly what made launch feel frozen.
-            ProgressView()
-                .controlSize(.small)
-                .scaleEffect(0.75)
-                .frame(width: 16)
-            label("Warming up…")
+            WorkingWaveform(reduceMotion: reduceMotion, quiet: true)
+            caption("Getting ready")
 
         case .idle:
             EmptyView()
         }
     }
 
-    private func label(_ text: String) -> some View {
+    private func caption(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 13, weight: .medium, design: .rounded))
-            .foregroundStyle(.secondary)
+            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.78))
+            .fixedSize()
             .transition(.opacity)
-    }
-
-    /// `contentTransition(.symbolEffect(.replace))` makes one symbol morph into
-    /// the next instead of popping — the detail that makes this feel built-in.
-    private func icon(_ name: String, tint: Color) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(tint)
-            .contentTransition(.symbolEffect(.replace))
     }
 }
 
-/// Live input-level bars, mirrored around the centre line.
+// MARK: - Waveforms
+
+private enum Bars {
+    static let count = 13
+    static let width: CGFloat = 3
+    static let spacing: CGFloat = 2.5
+    static let maxHeight: CGFloat = 20
+    static let minHeight: CGFloat = 3
+
+    /// Taller in the middle, like the icon, so even silence has a shape.
+    static func envelope(_ index: Int) -> CGFloat {
+        let center = CGFloat(count - 1) / 2
+        let distance = abs(CGFloat(index) - center) / center
+        return 1 - distance * 0.55
+    }
+}
+
+/// Bars that follow your voice.
 ///
-/// Growing from the middle rather than up from a baseline is what makes it read
-/// as a voice rather than a bar chart, and it stays legible at this size where a
-/// real waveform would turn to mush.
-struct WaveformView: View {
+/// Growing out from the centre line, and shaped by a fixed envelope, is what
+/// makes it read as a voice instead of a bar chart. Each bar gets a slightly
+/// different share of the level so it looks alive rather than like one bar
+/// copied thirteen times.
+struct LiveWaveform: View {
     let level: Float
     var reduceMotion: Bool = false
 
-    private static let barCount = 16
-    private static let maxHeight: CGFloat = 22
-
-    @State private var history: [Float] = Array(repeating: 0.05, count: barCount)
+    @State private var smoothed: [CGFloat] = Array(repeating: 0, count: Bars.count)
 
     var body: some View {
-        HStack(alignment: .center, spacing: 2.5) {
-            ForEach(Array(history.enumerated()), id: \.offset) { index, value in
+        HStack(alignment: .center, spacing: Bars.spacing) {
+            ForEach(0..<Bars.count, id: \.self) { index in
                 Capsule(style: .continuous)
-                    .fill(.tint)
-                    // Older samples sit further left and fade, so the eye reads
-                    // a direction of travel.
-                    .opacity(0.35 + 0.65 * (Double(index) / Double(Self.barCount - 1)))
-                    .frame(width: 2.5, height: max(2.5, CGFloat(value) * Self.maxHeight))
+                    .fill(Theme.barGradient)
+                    .frame(
+                        width: Bars.width,
+                        height: max(
+                            Bars.minHeight,
+                            smoothed[index] * Bars.maxHeight * Bars.envelope(index)))
             }
         }
-        .frame(height: Self.maxHeight)
-        .animation(
-            reduceMotion ? nil : .spring(response: 0.18, dampingFraction: 0.7),
-            value: history
-        )
+        .frame(height: Bars.maxHeight)
+        .shadow(color: Theme.violet.opacity(0.8), radius: 5)
+        .animation(reduceMotion ? nil : .spring(response: 0.16, dampingFraction: 0.72), value: smoothed)
         .onChange(of: level) { _, newValue in
-            history.removeFirst()
-            // Square-root curve: quiet speech still shows visible movement.
-            history.append(max(0.05, sqrt(newValue)))
+            // Square root so quiet speech still visibly moves the bars.
+            let target = CGFloat(sqrt(max(0, min(1, newValue))))
+            smoothed = smoothed.indices.map { index in
+                let jitter = 0.7 + 0.3 * CGFloat((index * 7 + Int(target * 40)) % 5) / 4
+                return max(0.12, target * jitter)
+            }
         }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Bars that ripple on their own while Flow is working.
+struct WorkingWaveform: View {
+    var reduceMotion: Bool = false
+    /// Smaller amplitude, for "starting" and "getting ready".
+    var quiet: Bool = false
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .center, spacing: Bars.spacing) {
+                ForEach(0..<Bars.count, id: \.self) { index in
+                    let phase = t * 5.5 - Double(index) * 0.45
+                    let wave = (sin(phase) + 1) / 2
+                    let amplitude: CGFloat = quiet ? 0.35 : 0.65
+                    let height = reduceMotion
+                        ? 0.3 : 0.15 + CGFloat(wave) * amplitude
+                    Capsule(style: .continuous)
+                        .fill(Theme.barGradient)
+                        .opacity(0.55 + 0.45 * wave)
+                        .frame(
+                            width: Bars.width,
+                            height: max(Bars.minHeight, height * Bars.maxHeight * Bars.envelope(index)))
+                }
+            }
+            .frame(height: Bars.maxHeight)
+        }
+        .shadow(color: Theme.violet.opacity(0.6), radius: 4)
         .accessibilityHidden(true)
     }
 }

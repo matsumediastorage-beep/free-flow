@@ -8,6 +8,9 @@ final class OverlayController {
     private let panel: OverlayPanel
     private let controller: DictationController
     private var hideTask: Task<Void, Never>?
+    /// False on a normal launch: loading cached weights is quick and silent, so
+    /// the pill stays out of the way. True only on a first-run download.
+    private let showsModelLoading: Bool
 
     /// Read once here rather than per-frame; the panel is AppKit, so it can't
     /// pick this up from the SwiftUI environment the way the pill's contents do.
@@ -15,8 +18,9 @@ final class OverlayController {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    init(controller: DictationController) {
+    init(controller: DictationController, showsModelLoading: Bool = true) {
         self.controller = controller
+        self.showsModelLoading = showsModelLoading
         self.panel = OverlayPanel {
             OverlayView(controller: controller)
         }
@@ -38,7 +42,10 @@ final class OverlayController {
                 self?.panel.dismiss()
             }
 
-        case .listening, .transcribing, .finished, .failed, .preparing:
+        case .preparing where !showsModelLoading:
+            panel.dismiss()
+
+        case .starting, .listening, .transcribing, .polishing, .finished, .failed, .preparing:
             let wasVisible = panel.isVisible
             // Resize to fit the current content before showing.
             panel.contentView?.layoutSubtreeIfNeeded()

@@ -39,9 +39,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let symbol: String
         switch state {
         case .listening: symbol = "waveform.circle.fill"
-        case .transcribing: symbol = "waveform.circle"
+        case .starting, .transcribing, .polishing: symbol = "waveform.circle"
         case .failed: symbol = "exclamationmark.triangle"
-        case .preparing: symbol = "arrow.down.circle"
+        case .preparing: symbol = "waveform"
         case .idle, .finished:
             symbol = Permissions.allGranted ? "waveform" : "exclamationmark.triangle"
         }
@@ -55,7 +55,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
         let missing = Permissions.missing
         if missing.isEmpty {
-            addDisabled("Hold \(dictation.hotkeyName) to dictate")
+            addDisabled(
+                dictation.isEngineReady
+                    ? "Ready · hold \(dictation.hotkeyName) to dictate"
+                    : "Hold \(dictation.hotkeyName) to dictate")
         } else {
             addDisabled("Setup needed — \(missing.count) permission\(missing.count == 1 ? "" : "s")")
             for permission in missing {
@@ -74,7 +77,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         case .preparing(.loading(let fraction)):
             addDisabled("Loading speech model… \(Int(fraction * 100))%")
         case .preparing(.warming):
-            addDisabled("Warming up the speech model…")
+            addDisabled("Getting the speech model ready…")
         default:
             break
         }

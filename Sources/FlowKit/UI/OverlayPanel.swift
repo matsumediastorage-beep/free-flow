@@ -45,6 +45,8 @@ final class OverlayPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    private var presentationGeneration = 0
+
     /// Positions the panel near the bottom of whichever screen the pointer is on.
     func reposition() {
         let mouse = NSEvent.mouseLocation
@@ -57,7 +59,7 @@ final class OverlayPanel: NSPanel {
         let size = frame.size
         let origin = NSPoint(
             x: visible.midX - size.width / 2,
-            y: visible.minY + 96
+            y: visible.minY + 72
         )
         setFrameOrigin(origin)
     }
@@ -69,10 +71,12 @@ final class OverlayPanel: NSPanel {
     /// be slow, because it's competing with the sound of your own voice. ~140ms
     /// with a slight upward drift is the shortest move that still reads as one.
     func present() {
+        presentationGeneration &+= 1
         let wasVisible = isVisible
         reposition()
 
         guard !wasVisible else {
+            animator().alphaValue = 1
             orderFrontRegardless()
             return
         }
@@ -92,12 +96,14 @@ final class OverlayPanel: NSPanel {
 
     func dismiss() {
         guard isVisible else { return }
+        presentationGeneration &+= 1
+        let token = presentationGeneration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            guard let self, self.alphaValue < 0.05 else { return }
+            guard let self, self.presentationGeneration == token else { return }
             self.orderOut(nil)
         }
     }

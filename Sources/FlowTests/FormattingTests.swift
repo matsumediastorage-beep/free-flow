@@ -40,6 +40,61 @@ func registerFormattingTests(_ suite: TestSuite) async {
         suite.expectEqual(result, "um so like whatever")
     }
 
+    // MARK: - AI output hygiene and context
+
+    await suite.test("sanitize strips echoed tags and wrapping quotes") {
+        suite.expectEqual(
+            CleanupPrompt.sanitize("<transcript>\nSee you at 5.\n</transcript>", raw: "see you at five"),
+            "See you at 5.")
+        suite.expectEqual(
+            CleanupPrompt.sanitize("\"Send it Thursday.\"", raw: "send it thursday"),
+            "Send it Thursday.")
+    }
+
+    await suite.test("sanitize keeps quotes the speaker actually dictated") {
+        let raw = "\"hello\" she said"
+        suite.expectEqual(CleanupPrompt.sanitize("\"Hello,\" she said.", raw: raw), "\"Hello,\" she said.")
+    }
+
+    await suite.test("implausibly long output is rejected") {
+        suite.expect(!CleanupPrompt.isPlausible(String(repeating: "x", count: 500), raw: "hi"))
+        suite.expect(CleanupPrompt.isPlausible("Hi.", raw: "hi"))
+        suite.expect(!CleanupPrompt.isPlausible("", raw: "hi"))
+    }
+
+    await suite.test("mid-sentence context is detected") {
+        suite.expect(CleanupPrompt.continuesSentence("Hi Blair, I wanted to"))
+        suite.expect(!CleanupPrompt.continuesSentence("Thanks for that."))
+        suite.expect(!CleanupPrompt.continuesSentence("Line one\n"))
+    }
+
+    await suite.test("prompt carries vocabulary, context and style") {
+        let ctx = FormattingContext(
+            appName: "Mail", vocabulary: ["Supabase", "Blair"],
+            precedingText: "Hi Blair,", style: .light)
+        let system = CleanupPrompt.system(for: ctx)
+        suite.expect(system.contains("Supabase"))
+        suite.expect(system.contains("Mail"))
+        suite.expect(system.contains("word for word"), "light style not applied")
+        let user = CleanupPrompt.user(transcript: "hey blare", context: ctx)
+        suite.expect(user.contains("<before_cursor>"))
+        suite.expect(user.contains("hey blare"))
+    }
+
+    await suite.test("smart spacing joins dictation to existing text") {
+        suite.expect(FocusedTextContext.needsLeadingSpace(before: "Hello", inserting: "world"))
+        suite.expect(!FocusedTextContext.needsLeadingSpace(before: "Hello ", inserting: "world"))
+        suite.expect(!FocusedTextContext.needsLeadingSpace(before: "Hello", inserting: ", world"))
+        suite.expect(!FocusedTextContext.needsLeadingSpace(before: nil, inserting: "world"))
+        suite.expect(!FocusedTextContext.needsLeadingSpace(before: "(", inserting: "aside"))
+    }
+
+    await suite.test("word diff counts real fixes, not punctuation") {
+        suite.expectEqual(WordDiff.changeCount(from: "hello world", to: "Hello, world."), 0)
+        suite.expectEqual(
+            WordDiff.changeCount(from: "um send it to blare", to: "Send it to Blair."), 2)
+    }
+
     // MARK: - Latency budget
 
     await suite.test("cleanup budget scales with transcript length") {

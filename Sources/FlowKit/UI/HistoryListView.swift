@@ -8,18 +8,18 @@ struct HistoryListView: View {
     @State private var justCopied: UUID?
 
     var body: some View {
-        VStack(spacing: 0) {
-            StatsHeader(history: history)
-            Divider()
-
+        Group {
             if history.entries.isEmpty {
                 EmptyState()
             } else if groups.isEmpty {
                 ContentUnavailableView.search(text: search)
             } else {
-                List {
-                    ForEach(groups, id: \.title) { group in
-                        Section(group.title) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10, pinnedViews: []) {
+                        ForEach(groups, id: \.title) { group in
+                            SectionLabel(text: group.title)
+                                .padding(.top, 10)
+                                .padding(.leading, 4)
                             ForEach(group.entries) { entry in
                                 EntryRow(
                                     entry: entry,
@@ -32,8 +32,11 @@ struct HistoryListView: View {
                             }
                         }
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: 900)
+                    .frame(maxWidth: .infinity)
                 }
-                .listStyle(.inset)
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search dictations")
@@ -109,6 +112,44 @@ struct HistoryListView: View {
     }
 }
 
+// MARK: - Diff
+
+/// The pasted text with the AI's changes marked: added or corrected words
+/// highlighted, dropped words (the ums, the misheard version) struck through.
+struct DiffText: View {
+    let raw: String
+    let final: String
+
+    var body: some View {
+        Text(attributed)
+    }
+
+    private var attributed: AttributedString {
+        var result = AttributedString()
+        let pieces = WordDiff.pieces(from: raw, to: final)
+        for (index, piece) in pieces.enumerated() {
+            if index > 0 { result += AttributedString(" ") }
+            switch piece {
+            case .same(let word):
+                result += AttributedString(word)
+            case .added(let word):
+                var part = AttributedString(word)
+                part[AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute.self] = Theme.violet
+                part[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] =
+                    Theme.violet.opacity(0.14)
+                result += part
+            case .removed(let word):
+                var part = AttributedString(word)
+                part[AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute.self] = Color.secondary
+                part[AttributeScopes.SwiftUIAttributes.StrikethroughStyleAttribute.self] =
+                    Text.LineStyle(pattern: .solid)
+                result += part
+            }
+        }
+        return result
+    }
+}
+
 // MARK: - Rows
 
 private struct EntryRow: View {
@@ -120,14 +161,23 @@ private struct EntryRow: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    @State private var showChanges = false
 
     var body: some View {
+        let fixes = WordDiff.changeCount(from: entry.rawText, to: entry.finalText)
+
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(entry.finalText)
-                    .font(.system(size: 13))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 7) {
+                Group {
+                    if showChanges {
+                        DiffText(raw: entry.rawText, final: entry.finalText)
+                    } else {
+                        Text(entry.finalText)
+                    }
+                }
+                .font(.system(size: 13))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 8) {
                     Text(entry.createdAt.formatted(date: .omitted, time: .shortened))
@@ -137,13 +187,20 @@ private struct EntryRow: View {
                     }
                     Text("·")
                     Text("\(entry.wordCount) words")
-                    if entry.wasCleanedUp {
-                        Image(systemName: "wand.and.stars")
-                            .help("Cleaned up by AI. Raw: \(entry.rawText)")
+                    if fixes > 0 {
+                        Button {
+                            withAnimation(.snappy(duration: 0.2)) { showChanges.toggle() }
+                        } label: {
+                            Label(
+                                showChanges ? "Hide changes" : "\(fixes) \(fixes == 1 ? "fix" : "fixes")",
+                                systemImage: "sparkles")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Theme.violet)
                     }
                 }
                 .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 0)
@@ -163,15 +220,26 @@ private struct EntryRow: View {
                 IconButton(
                     systemName: isCopied ? "checkmark" : "doc.on.doc",
                     help: "Copy",
-                    tint: isCopied ? .green : nil,
+                    tint: isCopied ? Theme.violet : nil,
                     action: onCopy
                 )
             }
         }
-        .padding(.vertical, 5)
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovering ? 1 : 0.6))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    isHovering ? AnyShapeStyle(Theme.violet.opacity(0.35)) : AnyShapeStyle(Color.primary.opacity(0.06)),
+                    lineWidth: 1)
+        }
         .contentShape(.rect)
-        .onHover { isHovering = $0 }
-        .onTapGesture(perform: onCopy)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
+        }
     }
 }
 
@@ -184,66 +252,25 @@ private struct IconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 11))
-                .frame(width: 22, height: 22)
+                .font(.system(size: 11.5))
+                .frame(width: 24, height: 24)
                 .foregroundStyle(tint ?? .secondary)
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.borderless)
         .help(help)
     }
 }
 
-// MARK: - Header
-
-private struct StatsHeader: View {
-    let history: HistoryStore
-
-    var body: some View {
-        HStack(spacing: 28) {
-            Stat(value: "\(history.entries.count)", label: "dictations")
-            Stat(value: "\(history.totalWords.formatted())", label: "words")
-            Stat(value: Self.duration(history.totalTimeSaved), label: "saved vs typing")
-            Spacer()
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-    }
-
-    private struct Stat: View {
-        let value: String
-        let label: String
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(value)
-                    .font(.system(size: 19, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                Text(label)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private static func duration(_ seconds: TimeInterval) -> String {
-        if seconds < 60 { return "\(Int(seconds))s" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m" }
-        let hours = seconds / 3600
-        return String(format: "%.1fh", hours)
-    }
-}
-
 private struct EmptyState: View {
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "waveform")
-                .font(.system(size: 34))
-                .foregroundStyle(.tertiary)
+            BrandMark(size: 52)
             Text("No dictations yet")
-                .font(.system(size: 14, weight: .medium))
+                .font(Theme.display(17, weight: .semibold))
             Text("Hold your dictation key anywhere and start talking.")
-                .font(.system(size: 12))
+                .font(.system(size: 12.5))
                 .foregroundStyle(.secondary)
             Spacer()
         }

@@ -18,7 +18,12 @@ final class HotkeyMonitor {
     }
 
     var hotkey: Hotkey = .rightShift {
-        didSet { machine.reset() }
+        didSet {
+            guard hotkey != oldValue else { return }
+            onEvent?(.cancelled)
+            machine.reset()
+            onEvent?(.handsFreeChanged(false))
+        }
     }
 
     private var eventTap: CFMachPort?
@@ -87,6 +92,9 @@ final class HotkeyMonitor {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             // macOS can disable a tap under load. Bring it straight back or the
             // hotkey silently dies for the rest of the session.
+            onEvent?(.cancelled)
+            machine.reset()
+            onEvent?(.handsFreeChanged(false))
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }

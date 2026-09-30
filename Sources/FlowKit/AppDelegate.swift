@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import FluidAudio
 import os
 
 @MainActor
@@ -17,8 +18,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dashboard: DashboardWindowController!
     private var menuBar: MenuBarController!
 
+    private let launchedAt = Date()
+
     private var modelLoadSeconds: Double = 0
     private var modelWarmupSeconds: Double = 0
+    /// Launch to fully ready, the number that actually matters.
+    private var readySeconds: Double = 0
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         applyActivationPolicy()
@@ -30,11 +35,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         applyFormatter()
 
-        overlay = OverlayController(controller: dictation)
+        // On a normal launch the weights are already on disk and loading is a
+        // background detail — there's no reason to put a "Warming up" pill in
+        // the middle of the screen for it. Only a first-run download, which
+        // genuinely takes a while, is worth showing.
+        let modelsCached = AsrModels.modelsExist(
+            at: AsrModels.defaultCacheDirectory(for: .v3), version: .v3)
+        overlay = OverlayController(controller: dictation, showsModelLoading: !modelsCached)
 
         dashboard = DashboardWindowController(
             history: history,
             settings: settings,
+            dictation: dictation,
             onSettingsChanged: { [weak self] in
                 self?.applyFormatter()
                 self?.dictation.applySettings()
@@ -51,18 +63,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // first-run download, and there's no reason to make the user wait for
         // it after they finish granting access.
         dictation.onEngineReady = { [weak self] load, warmup in
-            self?.modelLoadSeconds = load
-            self?.modelWarmupSeconds = warmup
-            self?.writeStatus()
+            guard let self else { return }
+            self.modelLoadSeconds = load
+            self.modelWarmupSeconds = warmup
+            self.readySeconds = Date().timeIntervalSince(self.launchedAt)
+            self.writeStatus()
+            self.menuBar.refresh()
+
+            // Warm Apple's model too — its first generation costs ~3s cold —
+            // but only *after* Parakeet is ready. Both run on the Neural
+            // Engine, and warming them at the same time made each one slower.
+            if self.settings.cleanupEngine != .off {
+                Task.detached(priority: .utility) { await AppleFormatter.warmUp() }
+            }
         }
         dictation.prepareEngine()
-
-        // Same reasoning as the speech model's warm-up: the first generation
-        // costs ~3s cold and about a second warm, so pay it at launch on a
-        // throwaway prompt rather than on the user's first real dictation.
-        if settings.cleanupEngine == .onDevice {
-            Task.detached(priority: .utility) { await AppleFormatter.warmUp() }
-        }
 
         startListening()
 
@@ -137,22 +152,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Records what actually happened, so diagnosing "the hotkey does nothing"
     /// doesn't come down to guesswork.
     private func writeStatus() {
-        let modelsExist = FileManager.default.fileExists(
-            atPath: FileManager.default.urls(
-                for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("FluidAudio/Models").path)
 
         LaunchStatus(
-            launchedAt: Date(),
+            launchedAt: launchedAt,
             accessibility: Permissions.isGranted(.accessibility),
             accessibilityBare: AXIsProcessTrusted(),
             inputMonitoring: Permissions.isGranted(.inputMonitoring),
             microphone: Permissions.isGranted(.microphone),
             hotkeyTapActive: dictation.isListening,
             hotkey: settings.hotkey.displayName,
-            speechModelReady: modelsExist,
+            speechModelReady: dictation.isEngineReady,
             modelLoadSeconds: modelLoadSeconds,
             modelWarmupSeconds: modelWarmupSeconds,
+            readySeconds: readySeconds,
+            cleanupEngine: settings.cleanupEngine.rawValue,
+            appleModelAvailable: AppleFormatter.isAvailable,
             appPath: Bundle.main.bundlePath
         ).write()
     }
@@ -170,7 +184,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         case .claude:
             if let key = KeychainStore.apiKey, !key.isEmpty {
-                dictation.formatter = ClaudeFormatter(apiKey: key)
+                dictation.formatter = ClaudeFormatter(
+                    apiKey: key,
+                    fallback: AppleFormatter.isAvailable ? AppleFormatter() : LocalFormatter())
             } else {
                 // Claude is selected but there's no key. Prefer the on-device
                 // model over rule-based cleanup — it's free and already here.
